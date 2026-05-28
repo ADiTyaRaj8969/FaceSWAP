@@ -1,5 +1,5 @@
 import { initializeApp }  from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey:            "AIzaSyCF9t3xPf_Se4qkqAHFRoW-YqG8LfoQIpo",
@@ -15,4 +15,4 @@ const fbApp          = initializeApp(firebaseConfig);
 const auth           = getAuth(fbApp);
 const googleProvider = new GoogleAuthProvider();
 
-export { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged };
+export { auth, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged };

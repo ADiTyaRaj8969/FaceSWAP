@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { auth, googleProvider, signInWithPopup } from '../firebase';
+import { auth, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from '../firebase';
 import useAuth, { saveSession, daysLeft } from '../hooks/useAuth';
 import Aurora          from '../components/ui/Aurora';
 import SplitText       from '../components/ui/SplitText';
@@ -49,14 +49,26 @@ export default function LandingPage() {
   const isSignedIn = !!user;
   const days       = isSignedIn ? daysLeft() : 0;
 
+  // Handle redirect result when returning from Google sign-in redirect
+  useEffect(() => {
+    getRedirectResult(auth).then(result => {
+      if (!result) return;
+      saveSession(result.user, '');
+      result.user.getIdToken(false).then(t => localStorage.setItem('df_token', t)).catch(() => {});
+      navigate('/app');
+    }).catch(err => {
+      if (err?.code && err.code !== 'auth/popup-closed-by-user') {
+        setError(`Sign in failed: ${err.code}`);
+      }
+    });
+  }, [navigate]);
+
   const doGoogleSignIn = async () => {
     setSigningIn(true);
     setError('');
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      // Save session immediately with empty token so isSessionExpired() won't block
       saveSession(result.user, '');
-      // Fetch real token in background — do NOT await before navigating
       result.user.getIdToken(false).then(t => localStorage.setItem('df_token', t)).catch(() => {});
       navigate('/app');
     } catch (err) {
@@ -64,9 +76,10 @@ export default function LandingPage() {
       if (err?.code === 'auth/popup-closed-by-user') {
         // user dismissed — no toast needed
       } else if (err?.code === 'auth/popup-blocked') {
-        setError('Popup was blocked. Please allow popups for this site and try again.');
+        // Popup blocked — fall back to redirect (no popup permission needed)
+        await signInWithRedirect(auth, googleProvider);
       } else if (err?.code === 'auth/unauthorized-domain') {
-        setError('This domain is not authorised in Firebase. Add localhost to Authorised Domains in Firebase Console.');
+        setError('This domain is not authorised in Firebase. Add it to Authorised Domains in Firebase Console.');
       } else if (err?.code === 'auth/operation-not-allowed') {
         setError('Google sign-in is not enabled. Enable it in Firebase Console → Authentication → Sign-in method.');
       } else {
