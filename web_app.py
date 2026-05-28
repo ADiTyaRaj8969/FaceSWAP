@@ -4,6 +4,9 @@ Run: python web_app.py
 Then open http://localhost:5000
 """
 import os
+# Must be set before any protobuf-using package (mediapipe, insightface) is imported.
+# Prevents 'SymbolDatabase has no attribute GetPrototype' with protobuf 3.20+.
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 import io
 import base64
 import traceback
