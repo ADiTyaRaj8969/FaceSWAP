@@ -5,7 +5,6 @@ on:
     branches: [main]
 
 jobs:
-  # ── Wait for CI to pass first ─────────────────────────────────────────────
   deploy:
     name: Push to Hugging Face Spaces
     runs-on: ubuntu-latest
@@ -16,31 +15,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ── Inject Firebase config from GitHub Secrets ──────────────────────
-      - name: Inject Firebase config into firebase.js
-        run: |
-          cat > frontend/src/firebase.js << 'ENDOFFILE'
-import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } from 'firebase/auth';
-
-const firebaseConfig = {
-  apiKey:            "${{ secrets.FIREBASE_API_KEY }}",
-  authDomain:        "${{ secrets.FIREBASE_AUTH_DOMAIN }}",
-  projectId:         "${{ secrets.FIREBASE_PROJECT_ID }}",
-  storageBucket:     "${{ secrets.FIREBASE_STORAGE_BUCKET }}",
-  messagingSenderId: "${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}",
-  appId:             "${{ secrets.FIREBASE_APP_ID }}",
-  measurementId:     "${{ secrets.FIREBASE_MEASUREMENT_ID }}",
-};
-
-const fbApp          = initializeApp(firebaseConfig);
-const auth           = getAuth(fbApp);
-const googleProvider = new GoogleAuthProvider();
-
-export { auth, googleProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged };
-ENDOFFILE
-
-      # ── Build React with real Firebase config ────────────────────────────
       - name: Set up Node 20
         uses: actions/setup-node@v4
         with:
@@ -52,21 +26,19 @@ ENDOFFILE
         working-directory: frontend
         run: npm ci --silent
 
-      - name: Build React app (with real Firebase config)
+      - name: Build React app
         working-directory: frontend
         run: npm run build
 
-      # ── Push to Hugging Face Spaces ──────────────────────────────────────
       - name: Configure git for HF push
         run: |
           git config user.email "adivid198986@gmail.com"
           git config user.name  "aditya-rAj19"
 
-      - name: Add built React to commit
+      - name: Commit built React
         run: |
           git add static/react/ -f
-          git add frontend/src/firebase.js -f
-          git diff --cached --quiet || git commit -m "ci: build React with Firebase config [skip ci]"
+          git diff --cached --quiet || git commit -m "ci: add built React [skip ci]"
 
       - name: Push to Hugging Face Spaces
         env:
