@@ -1,0 +1,41 @@
+# requirements.txt
+
+# Core
+streamlit==1.35.0
+opencv-python==4.9.0.80
+numpy==1.26.4
+Pillow==10.3.0
+scipy==1.13.0
+
+# Face Detection & Landmarks
+insightface==0.7.3
+onnxruntime>=1.20.0          # CPU version (must be >=1.20 for NumPy 2.x compat)
+# onnxruntime-gpu>=1.20.0    # Uncomment for GPU
+mediapipe==0.10.14
+mtcnn==0.1.1
+retinaface==0.0.1
+
+# Segmentation
+torch==2.3.0
+torchvision==0.18.0
+# For GPU: torch==2.3.0+cu121
+
+# Color & Image Processing
+scikit-image==0.23.2
+colormath==3.0.0
+imageio==2.34.1
+
+# Super Resolution (Optional)
+basicsr==1.4.2
+facexlib==0.3.0
+gfpgan==1.3.8
+realesrgan==0.3.0
+
+# Web server
+flask==3.0.3
+
+# Utils
+tqdm==4.66.4
+pyyaml==6.0.1
+python-dotenv==1.0.1
+requests==2.32.2

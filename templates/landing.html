@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DeepFace Studio -- AI Face Swap</title>
+  <link rel="stylesheet" href="/static/css/landing.css"/>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="nav__inner">
+      <a class="nav__brand" href="#">
+        <span class="nav__icon">&#11043;</span>
+        <span class="nav__name">DeepFace Studio</span>
+      </a>
+      <button class="nav__signin" onclick="openSignIn()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+          <polyline points="10 17 15 12 10 7"/>
+          <line x1="15" y1="12" x2="3" y2="12"/>
+        </svg>
+        Sign In
+      </button>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero__inner">
+      <div class="hero__badge">
+        <span class="hero__badge-dot"></span>
+        AI-Powered &nbsp;|&nbsp; Hair-to-Neck Blending
+      </div>
+
+      <h1 class="hero__title">
+        Swap Faces with<br/><span>Studio Precision</span>
+      </h1>
+
+      <p class="hero__sub">
+        Professional-grade deepfake face swapping with seamless skin-tone
+        matching, hair integration, and neck blending -- all in your browser.
+      </p>
+
+      <div class="hero__cta">
+        <button class="btn-google" onclick="signInWithGoogle()">
+          <!-- Google G logo -->
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+          </svg>
+          Continue with Google
+        </button>
+        <button class="btn-demo" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">
+          <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+          See Features
+        </button>
+      </div>
+
+      <div class="hero__stats">
+        <div class="stat">
+          <span class="stat__num">468</span>
+          <span class="stat__label">Facial Landmarks</span>
+        </div>
+        <div class="stat">
+          <span class="stat__num">8K</span>
+          <span class="stat__label">Output Quality</span>
+        </div>
+        <div class="stat">
+          <span class="stat__num">GPU</span>
+          <span class="stat__label">Accelerated</span>
+        </div>
+        <div class="stat">
+          <span class="stat__num">100%</span>
+          <span class="stat__label">Private</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="features" id="features">
+    <div class="features__inner">
+      <p class="section-label">What you get</p>
+      <h2 class="section-title">Everything for flawless face swaps</h2>
+      <div class="features__grid">
+        <div class="feature-card">
+          <div class="feature-card__icon">&#128247;</div>
+          <div class="feature-card__title">Live Camera + Upload</div>
+          <div class="feature-card__desc">Capture your source face directly from webcam or upload any image. Instant face detection feedback.</div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-card__icon">&#127808;</div>
+          <div class="feature-card__title">Hair-to-Neck Blending</div>
+          <div class="feature-card__desc">Seamlessly integrates the swapped face from hairline to neck using multi-layer mask blending and Poisson cloning.</div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-card__icon">&#127775;</div>
+          <div class="feature-card__title">Skin Tone Matching</div>
+          <div class="feature-card__desc">CIE LAB colour transfer adapts the swapped face to match the target skin tone across all Fitzpatrick types.</div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-card__icon">&#128269;</div>
+          <div class="feature-card__title">Quality Metrics</div>
+          <div class="feature-card__desc">Alignment score, blend quality, colour Delta-E, and naturalness score computed after every swap.</div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-card__icon">&#9889;</div>
+          <div class="feature-card__title">GPU Accelerated</div>
+          <div class="feature-card__desc">CUDA-optimised InsightFace model with ONNX Runtime for sub-2-second inference on supported hardware.</div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-card__icon">&#128274;</div>
+          <div class="feature-card__title">Private & Secure</div>
+          <div class="feature-card__desc">All processing happens on your own machine. No images are uploaded to external servers.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PIPELINE -->
+  <section class="pipeline">
+    <div class="pipeline__inner">
+      <p class="section-label">Processing pipeline</p>
+      <h2 class="section-title">Professional-grade workflow</h2>
+      <div class="pipeline__steps">
+        <div class="step"><div class="step__num">1</div><div class="step__label">Face Detection</div></div>
+        <div class="step"><div class="step__num">2</div><div class="step__label">Alignment</div></div>
+        <div class="step"><div class="step__num">3</div><div class="step__label">Deep Swap</div></div>
+        <div class="step"><div class="step__num">4</div><div class="step__label">Tone Match</div></div>
+        <div class="step"><div class="step__num">5</div><div class="step__label">Blending</div></div>
+        <div class="step"><div class="step__num">6</div><div class="step__label">Enhancement</div></div>
+        <div class="step"><div class="step__num">7</div><div class="step__label">Output</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section">
+    <div class="cta-section__inner">
+      <h2 class="cta-section__title">Ready to try it?</h2>
+      <p class="cta-section__sub">Sign in with your Google account to get started. Free, private, and runs on your own machine.</p>
+      <button class="btn-google" onclick="signInWithGoogle()">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.47 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+        </svg>
+        Sign in with Google
+      </button>
+    </div>
+  </section>
+
+  <footer>
+    <span>DeepFace Studio</span> &nbsp;|&nbsp; Educational use only &nbsp;|&nbsp; All processing is local &nbsp;|&nbsp; &copy; 2026
+  </footer>
+
+  <!-- AUTH OVERLAY (shown while signing in) -->
+  <div class="auth-overlay hidden" id="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-card__logo">&#11043;</div>
+      <div class="auth-card__title">Sign in to DeepFace Studio</div>
+      <div class="auth-card__sub" id="auth-card-sub">
+        Use your Google account to access the face swap app.
+        Your images never leave your device.
+      </div>
+      <div class="auth-card__divider"></div>
+      <div id="auth-action">
+        <button class="btn-google" onclick="signInWithGoogle()" style="width:100%;justify-content:center;">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+          </svg>
+          Continue with Google
+        </button>
+      </div>
+      <div class="auth-card__terms">
+        By signing in you agree to use this tool responsibly and only
+        with images you own or have consent to use.
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp }        from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged }
+      from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+
+    /* ----------------------------------------------------------------
+       FILL IN YOUR FIREBASE PROJECT CONFIG BELOW
+       Go to: https://console.firebase.google.com
+       Create project -> Add Web App -> Copy config here
+    ---------------------------------------------------------------- */
+    const firebaseConfig = {
+      apiKey:            "YOUR_API_KEY",
+      authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
+      projectId:         "YOUR_PROJECT_ID",
+      storageBucket:     "YOUR_PROJECT_ID.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId:             "YOUR_APP_ID"
+    };
+
+    const app      = initializeApp(firebaseConfig);
+    const auth     = getAuth(app);
+    const provider = new GoogleAuthProvider();
+
+    // Check if already signed in
+    onAuthStateChanged(auth, user => {
+      if (user) {
+        user.getIdToken().then(token => {
+          sessionStorage.setItem('df_token',    token);
+          sessionStorage.setItem('df_uid',      user.uid);
+          sessionStorage.setItem('df_name',     user.displayName || '');
+          sessionStorage.setItem('df_email',    user.email || '');
+          sessionStorage.setItem('df_photo',    user.photoURL || '');
+          window.location.href = '/app';
+        });
+      }
+    });
+
+    // Expose to global scope for button onclick
+    window.signInWithGoogle = function() {
+      document.getElementById('auth-overlay').classList.remove('hidden');
+      document.getElementById('auth-action').innerHTML =
+        '<div class="auth-spinner"><div class="spinner"></div>Signing in...</div>';
+
+      signInWithPopup(auth, provider)
+        .then(result => {
+          return result.user.getIdToken();
+        })
+        .then(token => {
+          const u = auth.currentUser;
+          sessionStorage.setItem('df_token', token);
+          sessionStorage.setItem('df_uid',   u.uid);
+          sessionStorage.setItem('df_name',  u.displayName || '');
+          sessionStorage.setItem('df_email', u.email || '');
+          sessionStorage.setItem('df_photo', u.photoURL || '');
+          window.location.href = '/app';
+        })
+        .catch(err => {
+          document.getElementById('auth-overlay').classList.add('hidden');
+          document.getElementById('auth-action').innerHTML =
+            '<button class="btn-google" onclick="signInWithGoogle()" style="width:100%;justify-content:center;">Try Again</button>';
+          console.error(err);
+          alert('Sign-in failed: ' + err.message);
+        });
+    };
+
+    window.openSignIn = function() {
+      document.getElementById('auth-overlay').classList.remove('hidden');
+    };
+  </script>
+
+</body>
+</html>
