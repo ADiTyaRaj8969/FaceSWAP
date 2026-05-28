@@ -1,0 +1,31 @@
+# Never include pre-built React output — Docker builds it from source in Stage 1
+static/react/
+
+# Node deps (rebuilt in Stage 1)
+frontend/node_modules/
+
+# Git history
+.git/
+.github/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Dev / local artefacts
+.env
+uploads/
+outputs/
+models/
+.insightface/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
