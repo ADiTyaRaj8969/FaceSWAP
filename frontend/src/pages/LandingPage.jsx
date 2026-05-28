@@ -51,6 +51,7 @@ export default function LandingPage() {
 
   // Handle redirect result when returning from Google sign-in redirect
   useEffect(() => {
+    if (typeof getRedirectResult !== 'function') return;
     getRedirectResult(auth).then(result => {
       if (!result) return;
       saveSession(result.user, '');
