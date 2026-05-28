@@ -17,7 +17,8 @@ imageio==2.34.1
 # Face detection & landmarks
 insightface==0.7.3
 onnxruntime==1.19.2
-mediapipe==0.10.14
+# mediapipe omitted — linux_x86_64 wheel incompatible with HF Spaces glibc.
+# landmarks.py falls back to OpenCV Haar cascade automatically.
 
 # Utils
 python-dotenv==1.0.1
