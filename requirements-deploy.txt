@@ -1,5 +1,4 @@
-# requirements-deploy.txt
-# CPU-only deployment (HuggingFace Spaces / Render / Railway)
+# requirements-deploy.txt  (CPU-only cloud deployment)
 
 # Core web
 flask==3.0.3
@@ -13,15 +12,14 @@ scipy==1.13.0
 scikit-image==0.23.2
 imageio==2.34.1
 
-# Face detection and landmarks
+# Face detection & landmarks
 insightface==0.7.3
 onnxruntime==1.18.0
 mediapipe==0.10.14
 
-# PyTorch CPU-only
+# PyTorch CPU-only  (index url passed via Dockerfile)
 torch==2.3.0+cpu
 torchvision==0.18.0+cpu
---extra-index-url https://download.pytorch.org/whl/cpu
 
 # Utils
 python-dotenv==1.0.1
