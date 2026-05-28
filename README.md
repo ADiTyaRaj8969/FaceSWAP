@@ -1,5 +1,6 @@
 ---
 title: DeepFace Studio
+emoji: 🎭
 colorFrom: green
 colorTo: yellow
 sdk: docker

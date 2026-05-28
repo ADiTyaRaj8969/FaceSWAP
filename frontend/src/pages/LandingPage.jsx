@@ -60,8 +60,17 @@ export default function LandingPage() {
       result.user.getIdToken(false).then(t => localStorage.setItem('df_token', t)).catch(() => {});
       navigate('/app');
     } catch (err) {
-      if (err?.code !== 'auth/popup-closed-by-user') {
-        setError('Sign in failed. Please try again.');
+      console.error('[Firebase Auth Error]', err?.code, err?.message);
+      if (err?.code === 'auth/popup-closed-by-user') {
+        // user dismissed — no toast needed
+      } else if (err?.code === 'auth/popup-blocked') {
+        setError('Popup was blocked. Please allow popups for this site and try again.');
+      } else if (err?.code === 'auth/unauthorized-domain') {
+        setError('This domain is not authorised in Firebase. Add localhost to Authorised Domains in Firebase Console.');
+      } else if (err?.code === 'auth/operation-not-allowed') {
+        setError('Google sign-in is not enabled. Enable it in Firebase Console → Authentication → Sign-in method.');
+      } else {
+        setError(`Sign in failed: ${err?.code || err?.message || 'unknown error'}`);
       }
       setSigningIn(false);
     }

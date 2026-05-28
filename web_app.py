@@ -33,7 +33,8 @@ REACT_BUILD = os.path.join("static", "react")
 
 app = Flask(__name__, static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
-CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
+_debug_mode = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
+CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"] if _debug_mode else "*")
 
 UPLOAD_DIR = "uploads/temp"
 OUTPUT_DIR = "outputs/results"
@@ -254,4 +255,4 @@ if __name__ == "__main__":
     print(f"Starting Face Swap Web App on port {port}...")
     if not debug:
         _prewarm_models()
-    app.run(debug=debug, host="0.0.0.0", port=port)
+    app.run(debug=debug, use_reloader=False, host="0.0.0.0", port=port)
