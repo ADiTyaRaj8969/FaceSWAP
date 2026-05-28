@@ -60,7 +60,7 @@ jobs:
       - name: Configure git for HF push
         run: |
           git config user.email "adivid198986@gmail.com"
-          git config user.name  "ADiTyaRaj8969"
+          git config user.name  "aditya-rAj19"
 
       - name: Add built React to commit
         run: |
@@ -72,5 +72,5 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git remote add hf https://ADiTyaRaj8969:${HF_TOKEN}@huggingface.co/spaces/ADiTyaRaj8969/FaceSwap || true
+          git remote add hf https://aditya-rAj19:${HF_TOKEN}@huggingface.co/spaces/aditya-rAj19/FaceSWAP || true
           git push hf main --force
