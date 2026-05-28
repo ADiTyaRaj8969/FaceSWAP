@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { auth, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from '../firebase';
+import { auth, googleProvider, signInWithRedirect, getRedirectResult } from '../firebase';
 import useAuth, { saveSession, daysLeft } from '../hooks/useAuth';
 import Aurora          from '../components/ui/Aurora';
 import SplitText       from '../components/ui/SplitText';
@@ -67,18 +67,11 @@ export default function LandingPage() {
     setSigningIn(true);
     setError('');
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      saveSession(result.user, '');
-      result.user.getIdToken(false).then(t => localStorage.setItem('df_token', t)).catch(() => {});
-      navigate('/app');
+      await signInWithRedirect(auth, googleProvider);
+      // Page will redirect to Google — code below won't run until user returns
     } catch (err) {
       console.error('[Firebase Auth Error]', err?.code, err?.message);
-      if (err?.code === 'auth/popup-closed-by-user') {
-        // user dismissed — no toast needed
-      } else if (err?.code === 'auth/popup-blocked') {
-        // Popup blocked — fall back to redirect (no popup permission needed)
-        await signInWithRedirect(auth, googleProvider);
-      } else if (err?.code === 'auth/unauthorized-domain') {
+      if (err?.code === 'auth/unauthorized-domain') {
         setError('This domain is not authorised in Firebase. Add it to Authorised Domains in Firebase Console.');
       } else if (err?.code === 'auth/operation-not-allowed') {
         setError('Google sign-in is not enabled. Enable it in Firebase Console → Authentication → Sign-in method.');
