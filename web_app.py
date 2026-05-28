@@ -165,9 +165,12 @@ def api_swap():
             return jsonify({"ok": False, "error": "No source image provided"}), 400
 
         # -- decode target ----------------------------------------------------
-        if "target_file" not in request.files or not request.files["target_file"].filename:
+        if "target_file" in request.files and request.files["target_file"].filename:
+            target = _decode_image(request.files["target_file"])
+        elif request.form.get("target_b64"):
+            target = _decode_image(request.form["target_b64"])
+        else:
             return jsonify({"ok": False, "error": "No target image provided"}), 400
-        target = _decode_image(request.files["target_file"])
 
         if source is None or target is None:
             return jsonify({"ok": False, "error": "Could not decode one or both images"}), 400

@@ -118,7 +118,9 @@ export default function AppPage() {
   const [srcB64,  setSrcB64]  = useState(null);
   const [srcInfo, setSrcInfo] = useState('');
 
+  const [tgtMode, setTgtMode] = useState('upload');
   const [tgtFile, setTgtFile] = useState(null);
+  const [tgtB64,  setTgtB64]  = useState(null);
   const [tgtInfo, setTgtInfo] = useState('');
 
   const [blend, setBlend] = useState(85);
@@ -127,10 +129,14 @@ export default function AppPage() {
   const [neck,  setNeck]  = useState(75);
   const [showSettings, setShowSettings] = useState(false);
 
-  const videoRef  = useRef(null);
-  const canvasRef = useRef(null);
-  const [stream,    setStream]    = useState(null);
-  const [camActive, setCamActive] = useState(false);
+  const videoRef    = useRef(null);
+  const canvasRef   = useRef(null);
+  const tgtVideoRef = useRef(null);
+  const tgtCanvasRef = useRef(null);
+  const [stream,       setStream]       = useState(null);
+  const [camActive,    setCamActive]    = useState(false);
+  const [tgtStream,    setTgtStream]    = useState(null);
+  const [tgtCamActive, setTgtCamActive] = useState(false);
 
   const [swapping, setSwapping] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -162,10 +168,33 @@ export default function AppPage() {
   };
 
   const onTgtFile = async (file) => {
-    setTgtFile(file); setTgtInfo('Detecting...');
+    setTgtFile(file); setTgtB64(null); setTgtInfo('Detecting...');
     try { const d = await detectFaces(file, null); setTgtInfo(d.faces > 0 ? `${d.faces} face(s) detected` : 'No face detected'); }
     catch { setTgtInfo(''); }
   };
+
+  const startTgtCamera = async () => {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, facingMode: 'user' } });
+      setTgtStream(s); setTgtCamActive(true);
+      if (tgtVideoRef.current) tgtVideoRef.current.srcObject = s;
+    } catch { setToast('Camera access denied. Use Upload instead.'); }
+  };
+
+  const captureTgt = async () => {
+    const v = tgtVideoRef.current, c = tgtCanvasRef.current;
+    if (!v || !c) return;
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    const b64 = c.toDataURL('image/jpeg', 0.92);
+    setTgtB64(b64); setTgtFile(null); setTgtCamActive(false);
+    tgtStream?.getTracks().forEach(t => t.stop()); setTgtStream(null);
+    setTgtInfo('Detecting...');
+    try { const d = await detectFaces(null, b64); setTgtInfo(d.faces > 0 ? `${d.faces} face(s) detected` : 'No face detected'); }
+    catch { setTgtInfo(''); }
+  };
+
+  const stopTgtCamera = () => { tgtStream?.getTracks().forEach(t => t.stop()); setTgtStream(null); setTgtCamActive(false); };
 
   const startCamera = async () => {
     try {
@@ -191,8 +220,8 @@ export default function AppPage() {
   const stopCamera = () => { stream?.getTracks().forEach(t => t.stop()); setStream(null); setCamActive(false); };
 
   const runSwap = async () => {
-    if (!srcFile && !srcB64) return setToast('Please provide a source face.');
-    if (!tgtFile)             return setToast('Please upload a target face.');
+    if (!srcFile && !srcB64)       return setToast('Please provide a source face.');
+    if (!tgtFile && !tgtB64)       return setToast('Please provide a target face.');
     setSwapping(true); setResult(null); setProgress(5); setPLabel('Initialising...');
 
     let idx = 0;
@@ -202,7 +231,7 @@ export default function AppPage() {
 
     const fd = new FormData();
     if (srcFile) fd.append('source_file', srcFile); else fd.append('source_b64', srcB64);
-    fd.append('target_file', tgtFile);
+    if (tgtFile) fd.append('target_file', tgtFile); else fd.append('target_b64', tgtB64);
     fd.append('blend_strength', blend);
     fd.append('tone_match',     tone);
     fd.append('hair_preserve',  hair);
@@ -229,9 +258,10 @@ export default function AppPage() {
   };
 
   const reset = () => {
-    setSrcFile(null); setSrcB64(null); setTgtFile(null);
-    setSrcInfo(''); setTgtInfo(''); setResult(null);
-    setProgress(0); stopCamera();
+    setSrcFile(null); setSrcB64(null); setSrcInfo('');
+    setTgtFile(null); setTgtB64(null);  setTgtInfo('');
+    setResult(null); setProgress(0);
+    stopCamera(); stopTgtCamera();
   };
 
   if (!authDone) return (
@@ -392,9 +422,64 @@ export default function AppPage() {
               </h2>
               <p className="text-[#6b7345] text-xs mt-1">The body or background to swap your face onto</p>
             </div>
-            {!tgtFile
-              ? <DropZone onFile={onTgtFile} />
-              : <ImagePreview file={tgtFile} infoEl={tgtInfo} onClear={() => { setTgtFile(null); setTgtInfo(''); }} />}
+
+            {/* mode toggle */}
+            <div className="flex bg-bg3 border border-border rounded-lg p-1 gap-1">
+              {['upload', 'camera'].map(m => (
+                <button key={m} onClick={() => setTgtMode(m)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2 rounded-md text-xs sm:text-sm font-semibold transition-all duration-200 ${tgtMode === m ? 'bg-olive text-lime shadow' : 'text-[#6b7345] hover:text-sage'}`}>
+                  {m === 'upload'
+                    ? <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    : <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>}
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
+
+            {/* upload */}
+            {tgtMode === 'upload' && !tgtFile && !tgtB64 && (
+              <DropZone onFile={onTgtFile} />
+            )}
+
+            {/* camera */}
+            {tgtMode === 'camera' && !tgtB64 && (
+              <div className="flex flex-col gap-3">
+                <div className="relative rounded-xl overflow-hidden bg-black aspect-[4/3]">
+                  <video ref={tgtVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                  <canvas ref={tgtCanvasRef} className="hidden" />
+                  {tgtCamActive && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-28 h-28 sm:w-32 sm:h-32 border-2 border-lime/60 rounded-full animate-pulse-ring shadow-[0_0_0_9999px_rgba(0,0,0,0.3)]" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2 justify-center flex-wrap">
+                  {!tgtCamActive && (
+                    <button onClick={startTgtCamera}
+                      className="flex items-center gap-2 bg-bg3 border border-border2 text-sage px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold hover:border-lime/50 transition-colors">
+                      Start Camera
+                    </button>
+                  )}
+                  {tgtCamActive && (
+                    <button onClick={captureTgt}
+                      className="flex items-center gap-2 bg-lime text-forest px-4 sm:px-5 py-2 rounded-lg text-xs sm:text-sm font-bold hover:bg-[#c8d280] transition-colors">
+                      Capture
+                    </button>
+                  )}
+                  {tgtCamActive && (
+                    <button onClick={stopTgtCamera}
+                      className="text-xs sm:text-sm text-[#6b7345] border border-border px-3 py-2 rounded-lg hover:text-sage transition-colors">
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {(tgtFile || tgtB64) && (
+              <ImagePreview file={tgtFile} b64={tgtB64} infoEl={tgtInfo}
+                onClear={() => { setTgtFile(null); setTgtB64(null); setTgtInfo(''); }} />
+            )}
           </SpotlightCard>
         </div>
 
