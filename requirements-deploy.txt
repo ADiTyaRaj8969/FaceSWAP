@@ -1,4 +1,6 @@
 # requirements-deploy.txt  (CPU-only cloud deployment)
+# NOTE: torch + torchvision are installed separately in Dockerfile
+#       to avoid index-url conflicts with PyPI packages.
 
 # Core web
 flask==3.0.3
@@ -14,12 +16,8 @@ imageio==2.34.1
 
 # Face detection & landmarks
 insightface==0.7.3
-onnxruntime==1.18.0
+onnxruntime==1.19.2
 mediapipe==0.10.14
-
-# PyTorch CPU-only  (index url passed via Dockerfile)
-torch==2.3.0+cpu
-torchvision==0.18.0+cpu
 
 # Utils
 python-dotenv==1.0.1
