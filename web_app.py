@@ -11,7 +11,7 @@ import uuid
 
 import cv2
 import numpy as np
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from PIL import Image
 
@@ -85,10 +85,14 @@ def serve_react(path):
         if path and os.path.isfile(asset):
             return send_file(asset)
         return send_file(react_index)
-    # Fallback to old Jinja templates during development before first build
-    if path == "app":
-        return render_template("app.html")
-    return render_template("landing.html")
+    # React build not found — remind developer to run npm run build
+    return (
+        "<h2 style='font-family:sans-serif;padding:2rem;color:#D4DE95;background:#0f1209;min-height:100vh'>"
+        "React build not found.<br><br>"
+        "<code style='font-size:0.9rem'>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code>"
+        "</h2>",
+        503,
+    )
 
 
 @app.route("/api/detect", methods=["POST"])
