@@ -11,10 +11,18 @@ import io
 import base64
 import traceback
 import uuid
+import mimetypes
+
+# python:3.10-slim has an incomplete MIME database — JS/CSS would be served as
+# application/octet-stream and the browser would refuse to execute them.
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("application/json", ".json")
 
 import cv2
 import numpy as np
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from PIL import Image
 
@@ -81,22 +89,29 @@ def _safe_detect(img):
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def serve_react(path):
-    """Serve the React build for all non-API routes."""
-    react_index = os.path.join(REACT_BUILD, "index.html")
-    if os.path.exists(react_index):
-        # Serve static asset if it exists, otherwise fall back to index.html (SPA routing)
-        asset = os.path.join(REACT_BUILD, path)
-        if path and os.path.isfile(asset):
-            return send_file(asset)
-        return send_file(react_index)
-    # React build not found — remind developer to run npm run build
-    return (
-        "<h2 style='font-family:sans-serif;padding:2rem;color:#D4DE95;background:#0f1209;min-height:100vh'>"
-        "React build not found.<br><br>"
-        "<code style='font-size:0.9rem'>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code>"
-        "</h2>",
-        503,
-    )
+    """Serve the React SPA — assets by exact path, everything else → index.html."""
+    react_dir   = os.path.abspath(REACT_BUILD)
+    react_index = os.path.join(react_dir, "index.html")
+
+    if not os.path.exists(react_index):
+        return (
+            "<h2 style='font-family:sans-serif;padding:2rem;color:#D4DE95;"
+            "background:#0f1209;min-height:100vh'>"
+            "React build not found.<br><br>"
+            "<code style='font-size:0.9rem'>"
+            "cd frontend &amp;&amp; npm install &amp;&amp; npm run build"
+            "</code></h2>",
+            503,
+        )
+
+    # Serve the asset if it exists (JS, CSS, images, etc.)
+    if path:
+        asset = os.path.join(react_dir, path)
+        if os.path.isfile(asset):
+            return send_from_directory(react_dir, path)
+
+    # SPA fallback — let React Router handle the route
+    return send_from_directory(react_dir, "index.html")
 
 
 @app.route("/api/detect", methods=["POST"])
