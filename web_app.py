@@ -230,6 +230,7 @@ def api_download(filename):
 
 
 if __name__ == "__main__":
-    print("Starting Face Swap Web App...")
-    print("Open http://localhost:5000 in your browser")
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    port  = int(os.environ.get("PORT", 5000))
+    debug = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
+    print(f"Starting Face Swap Web App on port {port}...")
+    app.run(debug=debug, host="0.0.0.0", port=port)

@@ -1,0 +1,32 @@
+# requirements-deploy.txt
+# CPU-only deployment (HuggingFace Spaces / Render / Railway)
+# GPU version: swap onnxruntime -> onnxruntime-gpu and torch CPU -> CUDA build
+
+# Core web
+flask==3.0.3
+flask-cors==4.0.1
+
+# Image processing
+opencv-python-headless==4.9.0.80
+numpy==1.26.4
+Pillow==10.3.0
+scipy==1.13.0
+scikit-image==0.23.2
+imageio==2.34.1
+
+# Face detection and landmarks
+insightface==0.7.3
+onnxruntime==1.18.0
+mediapipe==0.10.14
+
+# PyTorch CPU-only (much smaller than CUDA build)
+torch==2.3.0+cpu
+torchvision==0.18.0+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Color and utils
+colormath==3.0.0
+python-dotenv==1.0.1
+requests==2.32.2
+tqdm==4.66.4
+pyyaml==6.0.1

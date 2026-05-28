@@ -11,13 +11,22 @@ import AnimatedContent from '../components/ui/AnimatedContent';
 import Magnet          from '../components/ui/Magnet';
 import ShinyText       from '../components/ui/ShinyText';
 
+const FEATURE_ICONS = {
+  camera: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>,
+  layers: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>,
+  palette: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M12 13v2"/><circle cx="9" cy="17" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="18" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="17" r="1" fill="currentColor" stroke="none"/></svg>,
+  chart:  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
+  zap:    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+  lock:   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="w-5 h-5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+};
+
 const FEATURES = [
-  { icon: '📸', title: 'Live Camera + Upload',  desc: 'Capture from webcam or upload any image. Instant face detection with bounding box feedback.' },
-  { icon: '🌿', title: 'Hair to Neck Blending', desc: 'Seamless multi-layer mask blending from hairline through face to neck using Poisson cloning.' },
-  { icon: '✨', title: 'Skin Tone Matching',     desc: 'CIE LAB colour transfer adapts the swapped face to match target skin across all skin types.' },
-  { icon: '📊', title: 'Quality Metrics',       desc: 'Alignment score, blend quality, colour Delta E, and naturalness score after every swap.' },
-  { icon: '⚡', title: 'GPU Accelerated',       desc: 'CUDA optimised InsightFace with ONNX Runtime for sub 2s inference on supported hardware.' },
-  { icon: '🔒', title: 'Fully Private',         desc: 'All processing runs on your own machine. No images are uploaded to any external server.' },
+  { icon: FEATURE_ICONS.camera,  title: 'Live Camera + Upload',  desc: 'Capture from webcam or upload any image. Instant face detection with bounding box feedback.' },
+  { icon: FEATURE_ICONS.layers,  title: 'Hair to Neck Blending', desc: 'Seamless multi-layer mask blending from hairline through face to neck using Poisson cloning.' },
+  { icon: FEATURE_ICONS.palette, title: 'Skin Tone Matching',    desc: 'CIE LAB colour transfer adapts the swapped face to match target skin across all skin types.' },
+  { icon: FEATURE_ICONS.chart,   title: 'Quality Metrics',       desc: 'Alignment score, blend quality, colour Delta E, and naturalness score after every swap.' },
+  { icon: FEATURE_ICONS.zap,     title: 'GPU + CPU Support',     desc: 'CUDA optimised InsightFace on GPU, automatic CPU fallback. Same output quality on both.' },
+  { icon: FEATURE_ICONS.lock,    title: 'Fully Private',         desc: 'All processing runs on your own machine. No images are uploaded to any external server.' },
 ];
 
 const PIPELINE = ['Detect', 'Align', 'Swap', 'Tone Match', 'Blend', 'Enhance', 'Output'];
@@ -193,7 +202,7 @@ export default function LandingPage() {
             {FEATURES.map((f, i) => (
               <AnimatedContent key={f.title} delay={i * 0.07} direction="up">
                 <SpotlightCard className="bg-bg3 border border-forest rounded-2xl p-5 sm:p-7 h-full hover:border-olive hover:-translate-y-1 transition-all duration-200">
-                  <div className="w-10 h-10 sm:w-11 sm:h-11 bg-olive/20 border border-olive/40 rounded-xl flex items-center justify-center text-lg sm:text-xl mb-3 sm:mb-4">
+                  <div className="w-10 h-10 sm:w-11 sm:h-11 bg-olive/20 border border-olive/40 rounded-xl flex items-center justify-center text-lime mb-3 sm:mb-4">
                     {f.icon}
                   </div>
                   <h3 className="text-lime font-bold mb-1.5 text-sm sm:text-base">{f.title}</h3>
