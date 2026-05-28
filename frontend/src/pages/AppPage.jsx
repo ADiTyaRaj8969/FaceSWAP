@@ -213,7 +213,10 @@ export default function AppPage() {
         method: 'POST', body: fd,
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      const data = await resp.json();
+      const text = await resp.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch { throw new Error(`Server error ${resp.status}: ${text.slice(0, 120)}`); }
       clearInterval(timer);
       if (!data.ok) { setToast(data.error || 'Swap failed.'); setSwapping(false); return; }
       setProgress(100); setPLabel('Done!');
@@ -248,12 +251,29 @@ export default function AppPage() {
             <span className="text-lime font-extrabold tracking-tight text-sm sm:text-base hidden xs:block">DeepFace Studio</span>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            {user?.photoURL && (
-              <img src={user.photoURL} alt="" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full border border-olive shrink-0" />
-            )}
-            <span className="text-sage text-xs sm:text-sm hidden sm:block max-w-[120px] truncate">
-              {user?.displayName || user?.email}
-            </span>
+
+            {/* Avatar + name pill */}
+            <div className="flex items-center gap-2 bg-bg3 border border-border2 rounded-full pl-1 pr-3 py-1">
+              {user?.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt={user.displayName || ''}
+                  referrerPolicy="no-referrer"
+                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-full ring-2 ring-olive shrink-0 object-cover"
+                />
+              ) : (
+                <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-olive flex items-center justify-center text-lime font-bold text-sm shrink-0">
+                  {(user?.displayName || user?.email || 'U')[0].toUpperCase()}
+                </span>
+              )}
+              <div className="hidden sm:flex flex-col leading-none">
+                <span className="text-lime text-xs font-semibold max-w-[110px] truncate">
+                  {user?.displayName || user?.email}
+                </span>
+                <span className="text-[#6b7345] text-[10px]">Signed in</span>
+              </div>
+            </div>
+
             <button
               onClick={async () => { await signOut(auth); localStorage.clear(); sessionStorage.clear(); navigate('/'); }}
               className="text-xs text-[#6b7345] border border-border2 rounded-md px-2.5 sm:px-3 py-1.5 hover:text-lime hover:border-lime/40 transition-colors whitespace-nowrap shrink-0"

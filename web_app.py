@@ -233,8 +233,22 @@ def api_download(filename):
                      download_name="face_swap_result.png")
 
 
+def _prewarm_models():
+    """Load heavy ML models at startup so the first swap request is fast."""
+    print("Pre-warming ML models (this takes ~30s on first run)...")
+    try:
+        from core.swapper import _load_swapper, _load_app
+        _load_app()
+        _load_swapper()
+        print("Models ready.")
+    except Exception as e:
+        print(f"Model pre-warm skipped: {e}")
+
+
 if __name__ == "__main__":
     port  = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
     print(f"Starting Face Swap Web App on port {port}...")
+    if not debug:
+        _prewarm_models()
     app.run(debug=debug, host="0.0.0.0", port=port)

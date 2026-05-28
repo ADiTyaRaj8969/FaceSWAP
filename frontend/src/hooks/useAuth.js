@@ -10,7 +10,7 @@ const PHOTO_KEY    = 'df_photo';
 
 export function saveSession(user, token) {
   localStorage.setItem(LOGIN_KEY, Date.now().toString());
-  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(TOKEN_KEY, token || '');
   localStorage.setItem(NAME_KEY,  user.displayName || user.email || '');
   localStorage.setItem(PHOTO_KEY, user.photoURL || '');
 }
@@ -20,12 +20,6 @@ export function clearSession() {
   sessionStorage.clear();
 }
 
-function isSessionValid() {
-  const t = localStorage.getItem(LOGIN_KEY);
-  if (!t) return false;
-  return Date.now() - parseInt(t, 10) < SESSION_MS;
-}
-
 export function daysLeft() {
   const t = localStorage.getItem(LOGIN_KEY);
   if (!t) return 0;
@@ -33,44 +27,52 @@ export function daysLeft() {
   return Math.max(0, Math.ceil(remaining / (24 * 60 * 60 * 1000)));
 }
 
+function isSessionExpired() {
+  const t = localStorage.getItem(LOGIN_KEY);
+  if (!t) return false; // no local record = fresh sign-in, not expired
+  return Date.now() - parseInt(t, 10) > SESSION_MS;
+}
+
 export default function useAuth() {
   const [user,    setUser]    = useState(undefined); // undefined = still loading
   const [expired, setExpired] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (fbUser) => {
+    const unsub = onAuthStateChanged(auth, (fbUser) => {
       if (!fbUser) {
+        // Firebase has no signed-in user
         clearSession();
         setUser(null);
         return;
       }
 
-      // Session expired: sign out silently
-      if (!isSessionValid()) {
-        await signOut(auth);
+      // Check 10-day expiry
+      if (isSessionExpired()) {
+        signOut(auth).catch(() => {});
         clearSession();
         setExpired(true);
         setUser(null);
         return;
       }
 
-      // Refresh token
-      try {
-        const token = await fbUser.getIdToken(true);
+      // User is valid — set immediately (no await)
+      setUser(fbUser);
+
+      // Refresh token silently in background
+      fbUser.getIdToken(false).then(token => {
         localStorage.setItem(TOKEN_KEY, token);
         sessionStorage.setItem(TOKEN_KEY, token);
-      } catch {/* no-op */}
-
-      setUser(fbUser);
+      }).catch(() => {});
     });
+
     return unsub;
   }, []);
 
   return {
-    user,                              // null = not signed in, undefined = loading
-    loading:   user === undefined,
-    signedIn:  !!user,
+    user,
+    loading:  user === undefined,
+    signedIn: !!user,
     expired,
-    daysLeft:  daysLeft(),
+    daysLeft: daysLeft(),
   };
 }

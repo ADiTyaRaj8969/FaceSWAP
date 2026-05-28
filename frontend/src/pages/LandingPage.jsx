@@ -54,11 +54,15 @@ export default function LandingPage() {
     setError('');
     try {
       const result = await signInWithPopup(auth, googleProvider);
-      const token  = await result.user.getIdToken();
-      saveSession(result.user, token);
+      // Save session immediately with empty token so isSessionExpired() won't block
+      saveSession(result.user, '');
+      // Fetch real token in background — do NOT await before navigating
+      result.user.getIdToken(false).then(t => localStorage.setItem('df_token', t)).catch(() => {});
       navigate('/app');
-    } catch {
-      setError('Sign in failed. Please try again.');
+    } catch (err) {
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        setError('Sign in failed. Please try again.');
+      }
       setSigningIn(false);
     }
   };
@@ -88,7 +92,7 @@ export default function LandingPage() {
             ) : isSignedIn ? (
               <div className="flex items-center gap-2 bg-bg3 border border-border2 rounded-full pl-1.5 pr-2.5 sm:pr-3 py-1">
                 {user.photoURL
-                  ? <img src={user.photoURL} alt="" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full ring-2 ring-olive/50 shrink-0" />
+                  ? <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="w-6 h-6 sm:w-7 sm:h-7 rounded-full ring-2 ring-olive/50 shrink-0" />
                   : <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-olive flex items-center justify-center text-lime font-bold text-xs shrink-0">
                       {(user.displayName || user.email || 'U')[0].toUpperCase()}
                     </span>}
@@ -143,7 +147,7 @@ export default function LandingPage() {
             {isSignedIn && (
               <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
                 className="flex items-center justify-center gap-2 bg-olive/15 border border-lime/20 rounded-full px-4 py-2 mb-5 text-xs sm:text-sm text-sage flex-wrap text-center">
-                {user.photoURL && <img src={user.photoURL} alt="" className="w-5 h-5 rounded-full shrink-0" />}
+                {user.photoURL && <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="w-5 h-5 rounded-full shrink-0 object-cover" />}
                 <span>
                   Welcome back, <strong className="text-lime">{user.displayName?.split(' ')[0] || 'User'}</strong>
                   {' '} Session valid for <strong className="text-lime">{days} day{days !== 1 ? 's' : ''}</strong>

@@ -6,7 +6,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: 'http://localhost:5000', changeOrigin: true },
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        timeout: 300000,       // 5 minutes socket timeout
+        proxyTimeout: 300000,  // 5 minutes proxy timeout
+      },
     },
   },
   build: {
