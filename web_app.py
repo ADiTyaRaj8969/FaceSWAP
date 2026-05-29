@@ -28,13 +28,8 @@ from flask_cors import CORS
 from PIL import Image
 
 from core.detector import detect_faces
-from core.landmarks import extract_landmarks_468
-from core.segmentor import segment_hair_neck_skin
 from core.swapper import swap_face_insightface
-from core.blender import laplacian_blend, poisson_blend
 from core.skin_tone import analyze_skin_tone, match_skin_tone
-from core.neck_integrator import seamless_hair_to_neck_blend
-from core.color_corrector import harmonize_colors
 from core.quality_checker import compute_quality_score
 from utils.image_io import save_image, resize_keep_aspect
 
@@ -177,10 +172,7 @@ def api_swap():
             return jsonify({"ok": False, "error": "Could not decode one or both images"}), 400
 
         # -- parameters -------------------------------------------------------
-        blend_strength  = int(request.form.get("blend_strength",  85)) / 100.0
-        tone_match      = int(request.form.get("tone_match",      90)) / 100.0
-        hair_preserve   = int(request.form.get("hair_preserve",   80)) / 100.0
-        neck_blend      = int(request.form.get("neck_blend",      75)) / 100.0
+        tone_match = int(request.form.get("tone_match", 90)) / 100.0
 
         # -- resize -----------------------------------------------------------
         source = resize_keep_aspect(source, 1024)
@@ -195,42 +187,28 @@ def api_swap():
             return jsonify({"ok": False, "error": "No face detected in target image"}), 400
 
         # -- pipeline ---------------------------------------------------------
-        src_lm    = extract_landmarks_468(source)
-        tgt_lm    = extract_landmarks_468(target)
-        src_masks = segment_hair_neck_skin(source)
-        tgt_masks = segment_hair_neck_skin(target)
-
-        src_tone  = analyze_skin_tone(source, faces_src[0])
-        tgt_tone  = analyze_skin_tone(target, faces_tgt[0])
-        delta_e   = (
+        # InsightFace inswapper handles blending internally — keep post-processing
+        # minimal to preserve quality and speed.
+        src_tone = analyze_skin_tone(source, faces_src[0])
+        tgt_tone = analyze_skin_tone(target, faces_tgt[0])
+        delta_e  = (
             (src_tone["L"] - tgt_tone["L"]) ** 2 +
             (src_tone["a"] - tgt_tone["a"]) ** 2 +
             (src_tone["b"] - tgt_tone["b"]) ** 2
         ) ** 0.5
 
+        # 1. Core swap (InsightFace inswapper_128)
         swapped = swap_face_insightface(source, target)
-        swapped = match_skin_tone(swapped, target, src_tone, tgt_tone,
-                                  strength=tone_match)
-        swapped = seamless_hair_to_neck_blend(
-            source_img=swapped, target_img=target,
-            src_masks=src_masks, tgt_masks=tgt_masks,
-            src_landmarks=src_lm, tgt_landmarks=tgt_lm,
-            hair_preserve=hair_preserve,
-            neck_strength=neck_blend,
-            blend_strength=blend_strength,
-        )
-        blend_mask = tgt_masks["face_mask"]
-        # laplacian_blend: img1*mask + img2*(1-mask)
-        # mask=1 inside face → img1 must be swapped face, img2 must be target background
-        swapped = laplacian_blend(swapped, target, blend_mask, levels=4)
-        swapped = poisson_blend(swapped, target, blend_mask)
-        swapped = harmonize_colors(swapped, target, tgt_masks)
 
-        _empty_lm = np.zeros((0, 2), dtype=np.float32)
+        # 2. Light skin tone correction only when tones differ significantly
+        if delta_e > 10:
+            swapped = match_skin_tone(swapped, target, src_tone, tgt_tone,
+                                      strength=min(tone_match, 0.5))
+
         quality = compute_quality_score(
             swapped, target,
-            src_lm if src_lm is not None else _empty_lm,
-            tgt_lm if tgt_lm is not None else _empty_lm,
+            np.zeros((0, 2), dtype=np.float32),
+            np.zeros((0, 2), dtype=np.float32),
         )
 
         # -- save output -------------------------------------------------------
