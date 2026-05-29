@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import os
 
-from core.detector import _get_insightface  # reuse shared buffalo_l instance
+from .detector import _get_insightface  # reuse shared buffalo_l instance
 
 _swapper_model = None
 _swapper_load_attempted = False
