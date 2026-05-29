@@ -21,7 +21,8 @@ def _load_swapper():
             model_path, providers=["CPUExecutionProvider"]
         )
         return _swapper_model
-    except Exception:
+    except Exception as e:
+        print(f"[swapper] load_swapper failed: {e}")
         return None
 
 
@@ -38,7 +39,8 @@ def _load_app():
         )
         _insightface_app.prepare(ctx_id=0, det_size=(640, 640))
         return _insightface_app
-    except Exception:
+    except Exception as e:
+        print(f"[swapper] load_app failed: {e}")
         return None
 
 

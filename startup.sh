@@ -41,6 +41,18 @@ else
 fi
 
 echo ""
+echo "Pre-downloading InsightFace buffalo_l models..."
+python3 - <<'PYEOF'
+try:
+    import insightface
+    app = insightface.app.FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+    app.prepare(ctx_id=0, det_size=(640, 640))
+    print("  buffalo_l models ready.")
+except Exception as e:
+    print(f"  Warning: could not pre-load buffalo_l: {e}")
+PYEOF
+
+echo ""
 echo "Starting Flask server on port ${PORT:-7860}..."
 echo ""
 
