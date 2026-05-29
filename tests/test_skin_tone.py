@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 from core.skin_tone import analyze_skin_tone, match_skin_tone
 
 

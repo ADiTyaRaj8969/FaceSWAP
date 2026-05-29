@@ -109,18 +109,20 @@ def match_skin_tone(
             src_lab[:, :, ch] * (1 - strength) + corrected_ch * strength
         )
 
-    # Apply correction only inside the face mask (feathered at boundary)
+    corrected_bgr = cv2.cvtColor(
+        np.clip(corrected_lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR
+    )
+
+    # Composite in BGR so pixels outside the mask stay bit-exact (no LAB
+    # round-trip drift). Feather the mask edge to avoid a visible seam.
     if face_mask is not None and face_mask.size > 0:
         alpha = cv2.GaussianBlur(face_mask.astype(np.float32) / 255.0, (21, 21), 7)
         alpha = np.stack([alpha] * 3, axis=-1)
-        result_lab = src_lab * (1.0 - alpha) + corrected_lab * alpha
-    else:
-        result_lab = corrected_lab
+        result = (swapped_img.astype(np.float32) * (1.0 - alpha) +
+                  corrected_bgr.astype(np.float32) * alpha)
+        return np.clip(result, 0, 255).astype(np.uint8)
 
-    result = cv2.cvtColor(
-        np.clip(result_lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR
-    )
-    return result
+    return corrected_bgr
 
 
 def _default_tone() -> dict:
