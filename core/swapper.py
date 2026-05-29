@@ -57,13 +57,12 @@ def swap_face_insightface(source: np.ndarray, target: np.ndarray) -> np.ndarray:
         return _fallback_swap(source, target)
 
     try:
-        src_rgb = cv2.cvtColor(source, cv2.COLOR_BGR2RGB)
-        tgt_rgb = cv2.cvtColor(target, cv2.COLOR_BGR2RGB)
-
-        src_faces = app.get(src_rgb)
-        tgt_faces = app.get(tgt_rgb)
+        # InsightFace expects BGR (OpenCV native) — do NOT convert to RGB
+        src_faces = app.get(source)
+        tgt_faces = app.get(target)
 
         if not src_faces or not tgt_faces:
+            print(f"[swapper] face detection failed: src={len(src_faces)} tgt={len(tgt_faces)}")
             return _fallback_swap(source, target)
 
         result = target.copy()
@@ -72,7 +71,8 @@ def swap_face_insightface(source: np.ndarray, target: np.ndarray) -> np.ndarray:
             result = swapper.get(result, tgt_face, src_face, paste_back=True)
 
         return result
-    except Exception:
+    except Exception as e:
+        print(f"[swapper] swap failed: {e}")
         return _fallback_swap(source, target)
 
 

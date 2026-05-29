@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { auth, googleProvider, signInWithRedirect, getRedirectResult } from '../firebase';
+import { auth, googleProvider, signInWithPopup } from '../firebase';
 import useAuth, { saveSession, daysLeft } from '../hooks/useAuth';
 import Aurora          from '../components/ui/Aurora';
 import SplitText       from '../components/ui/SplitText';
@@ -49,33 +49,22 @@ export default function LandingPage() {
   const isSignedIn = !!user;
   const days       = isSignedIn ? daysLeft() : 0;
 
-  // Handle redirect result when returning from Google sign-in redirect
-  useEffect(() => {
-    if (typeof getRedirectResult !== 'function') return;
-    getRedirectResult(auth).then(result => {
-      if (!result) return;
-      saveSession(result.user, '');
-      result.user.getIdToken(false).then(t => localStorage.setItem('df_token', t)).catch(() => {});
-      navigate('/app');
-    }).catch(err => {
-      if (err?.code && err.code !== 'auth/popup-closed-by-user') {
-        setError(`Sign in failed: ${err.code}`);
-      }
-    });
-  }, [navigate]);
-
   const doGoogleSignIn = async () => {
     setSigningIn(true);
     setError('');
     try {
-      await signInWithRedirect(auth, googleProvider);
-      // Page will redirect to Google — code below won't run until user returns
+      const result = await signInWithPopup(auth, googleProvider);
+      saveSession(result.user, '');
+      result.user.getIdToken(false).then(t => localStorage.setItem('df_token', t)).catch(() => {});
+      navigate('/app');
     } catch (err) {
       console.error('[Firebase Auth Error]', err?.code, err?.message);
-      if (err?.code === 'auth/unauthorized-domain') {
-        setError('This domain is not authorised in Firebase. Add it to Authorised Domains in Firebase Console.');
-      } else if (err?.code === 'auth/operation-not-allowed') {
-        setError('Google sign-in is not enabled. Enable it in Firebase Console → Authentication → Sign-in method.');
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        // user dismissed — no message needed
+      } else if (err?.code === 'auth/popup-blocked') {
+        setError('Popup blocked — please allow popups for this site in your browser, then try again.');
+      } else if (err?.code === 'auth/unauthorized-domain') {
+        setError('Domain not authorised in Firebase. Contact the app owner.');
       } else {
         setError(`Sign in failed: ${err?.code || err?.message || 'unknown error'}`);
       }

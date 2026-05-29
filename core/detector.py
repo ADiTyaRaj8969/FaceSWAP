@@ -41,8 +41,7 @@ def detect_faces(image: np.ndarray) -> list:
     app = _get_insightface()
     if app is not None:
         try:
-            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            faces = app.get(rgb)
+            faces = app.get(image)  # InsightFace expects BGR (OpenCV native)
             if faces:
                 bboxes = []
                 for face in faces:
@@ -76,7 +75,6 @@ def get_insightface_faces(image: np.ndarray):
     if app is None:
         return []
     try:
-        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        return app.get(rgb)
+        return app.get(image)  # InsightFace expects BGR
     except Exception:
         return []
