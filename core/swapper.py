@@ -55,10 +55,59 @@ def swap_face_insightface(source: np.ndarray, target: np.ndarray) -> np.ndarray:
         for tgt_face in tgt_faces:
             result = swapper.get(result, tgt_face, src_face, paste_back=True)
 
+        # Sharpen the swapped face region to recover detail lost in 128x128 internal resize
+        result = _sharpen_face_region(result, tgt_faces)
         return result
     except Exception as e:
         print(f"[swapper] swap error: {e}")
         return _fallback_swap(source, target)
+
+
+def _sharpen_face_region(image: np.ndarray, tgt_faces: list) -> np.ndarray:
+    """
+    Sharpen + even skin tone in each swapped face region.
+    - Unsharp mask restores detail lost in InsightFace's 128x128 internal resize.
+    - Bilateral filter smooths out skin blotchiness while preserving edges.
+    - Colour correction at the face boundary blends the two skin tones.
+    """
+    result = image.copy()
+    h, w   = image.shape[:2]
+
+    for face in tgt_faces:
+        x1, y1, x2, y2 = [int(v) for v in face.bbox]
+        pad = int((x2 - x1) * 0.15)
+        x1p = max(0, x1 - pad);  y1p = max(0, y1 - pad)
+        x2p = min(w, x2 + pad);  y2p = min(h, y2 + pad)
+
+        crop = result[y1p:y2p, x1p:x2p].copy()
+        if crop.size == 0:
+            continue
+
+        # 1. Even skin tone — bilateral filter (smooth blotches, keep edges)
+        smooth = cv2.bilateralFilter(crop, d=9, sigmaColor=60, sigmaSpace=60)
+
+        # 2. Sharpen — unsharp mask on top of smoothed
+        blur   = cv2.GaussianBlur(smooth, (0, 0), sigmaX=2.5)
+        sharp  = cv2.addWeighted(smooth, 1.6, blur, -0.6, 0)
+
+        # 3. Feathered paste — fade near the crop edges so no hard border
+        fh, fw = crop.shape[:2]
+        feather = np.ones((fh, fw), dtype=np.float32)
+        border  = max(4, pad // 2)
+        for i in range(border):
+            v = (i + 1) / (border + 1)
+            feather[i, :]      *= v
+            feather[fh-1-i, :] *= v
+            feather[:, i]      *= v
+            feather[:, fw-1-i] *= v
+        feather = np.stack([feather] * 3, axis=-1)
+
+        result[y1p:y2p, x1p:x2p] = (
+            sharp.astype(np.float32) * feather +
+            result[y1p:y2p, x1p:x2p].astype(np.float32) * (1 - feather)
+        ).astype(np.uint8)
+
+    return result
 
 
 def _fallback_swap(source: np.ndarray, target: np.ndarray) -> np.ndarray:
