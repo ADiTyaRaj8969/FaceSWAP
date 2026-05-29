@@ -47,10 +47,22 @@ def download_model(name: str, url: str, notes: str):
 
     print(f"\nDownloading {name}  ({notes})")
     print(f"  URL: {url}")
+    tmp = dest.with_suffix(dest.suffix + ".part")
     try:
-        urllib.request.urlretrieve(url, dest, reporthook=_progress_hook)
-        print(f"\n  Saved -> {dest}")
+        _, headers = urllib.request.urlretrieve(url, tmp, reporthook=_progress_hook)
+        # Verify the download is complete — urlretrieve can report success on a
+        # connection that closed mid-stream, leaving a truncated file.
+        expected = int(headers.get("Content-Length", 0))
+        actual = tmp.stat().st_size
+        if expected and actual < expected:
+            tmp.unlink(missing_ok=True)
+            raise IOError(
+                f"truncated download: got {actual} bytes, expected {expected}"
+            )
+        tmp.replace(dest)
+        print(f"\n  Saved -> {dest}  ({actual/1e6:.0f} MB)")
     except Exception as e:
+        tmp.unlink(missing_ok=True)
         print(f"\n  ERROR: {e}")
         print(
             f"  Please download manually and place at: {dest}\n"
