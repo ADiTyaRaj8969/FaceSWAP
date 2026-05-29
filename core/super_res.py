@@ -130,22 +130,27 @@ def restore_faces(image: np.ndarray) -> np.ndarray:
 
 def upscale_image(image: np.ndarray, scale: int = 4) -> np.ndarray:
     """
-    Upscale the whole frame ~scale x with RealESRGAN; Lanczos fallback when the
-    model is absent. Used for the high-resolution download.
+    Upscale the whole frame ~scale x for the high-resolution download.
+
+    RealESRGAN is only used on GPU — on CPU (e.g. the HuggingFace free tier) a
+    4x pass on a 1024px frame takes 60-120s and risks an OOM/timeout, so we use
+    a fast Lanczos resize there instead. The facial sharpness comes from GFPGAN
+    in restore_faces() either way; this step only adds resolution.
     """
-    upsampler = _load_realesrgan()
-    if upsampler is not None:
-        try:
-            output, _ = upsampler.enhance(image, outscale=scale)
-            if output is not None:
-                h, w = output.shape[:2]
-                print(f"[super_res] RealESRGAN {scale}x -> {w}x{h}")
-                return output
-        except Exception as e:
-            print(f"[super_res] RealESRGAN enhance failed: {e}")
+    if _device() == "cuda":
+        upsampler = _load_realesrgan()
+        if upsampler is not None:
+            try:
+                output, _ = upsampler.enhance(image, outscale=scale)
+                if output is not None:
+                    h, w = output.shape[:2]
+                    print(f"[super_res] RealESRGAN {scale}x -> {w}x{h}")
+                    return output
+            except Exception as e:
+                print(f"[super_res] RealESRGAN enhance failed: {e}")
 
     h, w = image.shape[:2]
-    print(f"[super_res] Lanczos fallback {scale}x -> {w*scale}x{h*scale}")
+    print(f"[super_res] Lanczos {scale}x -> {w*scale}x{h*scale}")
     return cv2.resize(image, (w * scale, h * scale),
                       interpolation=cv2.INTER_LANCZOS4)
 

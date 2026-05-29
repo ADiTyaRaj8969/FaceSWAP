@@ -20,6 +20,17 @@ onnxruntime==1.19.2
 # mediapipe omitted — linux_x86_64 wheel incompatible with HF Spaces glibc.
 # landmarks.py falls back to OpenCV Haar cascade automatically.
 
+# Face restoration (fixes the 128x128 swap blur). Runs on CPU here — slower
+# than GPU but only restores 512px face crops, so it's tolerable. basicsr
+# imports torchvision.transforms.functional_tensor (removed in tv>=0.17); the
+# shim at the top of core/super_res.py recreates it so these import cleanly.
+# RealESRGAN is installed for the API but only used on GPU; on CPU super_res
+# falls back to a Lanczos upscale to avoid request timeouts.
+basicsr==1.4.2
+facexlib==0.3.0
+gfpgan==1.3.8
+realesrgan==0.3.0
+
 # Utils
 python-dotenv==1.0.1
 requests==2.32.2

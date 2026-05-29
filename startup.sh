@@ -13,37 +13,49 @@ echo ""
   MODEL_PATH="models/inswapper_128.onnx"
   mkdir -p models
 
-  if [ ! -f "$MODEL_PATH" ]; then
-    echo "[bg] Downloading inswapper_128.onnx (~528 MB)..."
-    python3 - <<'PYEOF'
+  python3 - <<'PYEOF'
 import requests, os
 
-url  = "https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx"
-dest = "models/inswapper_128.onnx"
-tmp  = dest + ".tmp"
+# (filename, url) — inswapper is required; GFPGAN restores the 128x128 swap
+# blur on CPU. RealESRGAN is skipped on the CPU deploy (super_res uses Lanczos
+# there), so we don't waste startup time/disk downloading it.
+MODELS = [
+    ("models/inswapper_128.onnx",
+     "https://huggingface.co/ezioruan/inswapper_128.onnx/resolve/main/inswapper_128.onnx"),
+    ("models/GFPGANv1.4.pth",
+     "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth"),
+]
+os.makedirs("models", exist_ok=True)
 
-try:
-    resp  = requests.get(url, stream=True, timeout=600)
-    total = int(resp.headers.get("content-length", 0))
-    done  = 0
-    with open(tmp, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=4 * 1024 * 1024):
-            f.write(chunk)
-            done += len(chunk)
-            if total:
-                pct = done * 100 // total
-                mb  = done // 1024 // 1024
-                print(f"\r[bg]   {mb}/{total//1024//1024} MB ({pct}%)", end="", flush=True)
-    os.replace(tmp, dest)
-    print("\n[bg] inswapper_128.onnx ready.")
-except Exception as e:
-    print(f"\n[bg] WARNING: model download failed: {e}")
-    if os.path.exists(tmp):
-        os.remove(tmp)
+for dest, url in MODELS:
+    name = os.path.basename(dest)
+    if os.path.exists(dest):
+        print(f"[bg] {name} already present.")
+        continue
+    tmp = dest + ".tmp"
+    try:
+        print(f"[bg] Downloading {name} ...")
+        resp  = requests.get(url, stream=True, timeout=600)
+        total = int(resp.headers.get("content-length", 0))
+        done  = 0
+        with open(tmp, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=4 * 1024 * 1024):
+                f.write(chunk)
+                done += len(chunk)
+                if total:
+                    pct = done * 100 // total
+                    mb  = done // 1024 // 1024
+                    print(f"\r[bg]   {name}: {mb}/{total//1024//1024} MB ({pct}%)", end="", flush=True)
+        # verify completeness — a truncated file would crash model loading later
+        if total and os.path.getsize(tmp) < total:
+            raise IOError(f"truncated: {os.path.getsize(tmp)}/{total} bytes")
+        os.replace(tmp, dest)
+        print(f"\n[bg] {name} ready.")
+    except Exception as e:
+        print(f"\n[bg] WARNING: {name} download failed: {e}")
+        if os.path.exists(tmp):
+            os.remove(tmp)
 PYEOF
-  else
-    echo "[bg] inswapper_128.onnx already present."
-  fi
 
   echo "[bg] Pre-loading InsightFace buffalo_l..."
   python3 - <<'PYEOF'
