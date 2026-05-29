@@ -278,7 +278,7 @@ export default function AppPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 h-13 sm:h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-lime text-base sm:text-lg">&#11043;</span>
-            <span className="text-lime font-extrabold tracking-tight text-sm sm:text-base hidden xs:block">DeepFace Studio</span>
+            <span className="text-lime font-extrabold tracking-tight text-sm sm:text-base">DeepFace Studio</span>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
 
