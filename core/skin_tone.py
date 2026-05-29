@@ -75,29 +75,50 @@ def analyze_skin_tone(image: np.ndarray, face_bbox) -> dict:
 def match_skin_tone(
     swapped_img: np.ndarray,
     target_img: np.ndarray,
-    src_tone: dict,
-    tgt_tone: dict,
-    strength: float = 0.9
+    src_tone: dict,  # noqa: ARG001 — kept for API compatibility
+    tgt_tone: dict,  # noqa: ARG001 — kept for API compatibility
+    strength: float = 0.9,
+    face_mask=None,  # type: np.ndarray | None
 ) -> np.ndarray:
     """
-    Adjust swapped image skin tone to match target.
-    Uses LAB color space transfer with strength control.
+    Adjust swapped face skin tone to match target, confined to face_mask region.
+    Passing face_mask prevents hair/neck/background from being colour-shifted.
+    When face_mask is None the transfer falls back to the whole image (legacy).
     """
     src_lab = cv2.cvtColor(swapped_img, cv2.COLOR_BGR2LAB).astype(np.float32)
     tgt_lab = cv2.cvtColor(target_img,  cv2.COLOR_BGR2LAB).astype(np.float32)
 
-    # Per-channel mean/std transfer
-    for ch in range(3):
-        src_mean, src_std = src_lab[:, :, ch].mean(), src_lab[:, :, ch].std()
-        tgt_mean, tgt_std = tgt_lab[:, :, ch].mean(), tgt_lab[:, :, ch].std()
+    # Determine which pixels to compute statistics from
+    if face_mask is not None and face_mask.size > 0:
+        stat_mask = face_mask > 128
+    else:
+        stat_mask = np.ones(src_lab.shape[:2], dtype=bool)
 
-        if src_std < 1e-6:
+    corrected_lab = src_lab.copy()
+    for ch in range(3):
+        src_vals = src_lab[:, :, ch][stat_mask]
+        tgt_vals = tgt_lab[:, :, ch][stat_mask]
+        if src_vals.std() < 1e-6 or tgt_vals.std() < 1e-6:
             continue
-        corrected = (src_lab[:, :, ch] - src_mean) * (tgt_std / src_std) + tgt_mean
-        src_lab[:, :, ch] = src_lab[:, :, ch] * (1 - strength) + corrected * strength
+        corrected_ch = (
+            (src_lab[:, :, ch] - src_vals.mean()) *
+            (tgt_vals.std() / src_vals.std()) +
+            tgt_vals.mean()
+        )
+        corrected_lab[:, :, ch] = (
+            src_lab[:, :, ch] * (1 - strength) + corrected_ch * strength
+        )
+
+    # Apply correction only inside the face mask (feathered at boundary)
+    if face_mask is not None and face_mask.size > 0:
+        alpha = cv2.GaussianBlur(face_mask.astype(np.float32) / 255.0, (21, 21), 7)
+        alpha = np.stack([alpha] * 3, axis=-1)
+        result_lab = src_lab * (1.0 - alpha) + corrected_lab * alpha
+    else:
+        result_lab = corrected_lab
 
     result = cv2.cvtColor(
-        np.clip(src_lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR
+        np.clip(result_lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR
     )
     return result
 

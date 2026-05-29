@@ -1,4 +1,3 @@
-import cv2
 import numpy as np
 
 from core.detector import detect_faces
@@ -10,17 +9,16 @@ from core.skin_tone import analyze_skin_tone, match_skin_tone
 from core.neck_integrator import seamless_hair_to_neck_blend
 from core.color_corrector import harmonize_colors
 from core.quality_checker import compute_quality_score
-from utils.image_io import resize_keep_aspect
 
 
 def run_full_pipeline(
     source: np.ndarray,
     target: np.ndarray,
     blend_strength: float = 0.85,
-    tone_match_strength: float = 0.9,
+    tone_match_strength: float = 0.6,
     hair_preserve: float = 0.8,
     neck_blend_strength: float = 0.75,
-    enable_super_res: bool = False,
+    enable_super_res: bool = True,
     progress_callback=None,
 ) -> dict:
     """
@@ -58,8 +56,11 @@ def run_full_pipeline(
     swapped = swap_face_insightface(source, target)
 
     _progress(55, "Matching skin tones...")
-    swapped = match_skin_tone(swapped, target, src_tone, tgt_tone,
-                              strength=tone_match_strength)
+    swapped = match_skin_tone(
+        swapped, source, src_tone, src_tone,
+        strength=tone_match_strength,
+        face_mask=tgt_masks.get("face_mask"),
+    )
 
     _progress(65, "Blending hair, face, neck seamlessly...")
     swapped = seamless_hair_to_neck_blend(
@@ -83,12 +84,16 @@ def run_full_pipeline(
     swapped = harmonize_colors(swapped, target, tgt_masks)
 
     if enable_super_res:
-        _progress(92, "Enhancing resolution...")
+        _progress(92, "Enhancing resolution to 4K...")
         try:
             from core.super_res import enhance_resolution
-            swapped = enhance_resolution(swapped)
-        except Exception:
-            pass
+            swapped = enhance_resolution(swapped, scale=4)
+        except Exception as e:
+            import cv2
+            print(f"[pipeline] super_res skipped: {e}")
+            h, w = swapped.shape[:2]
+            swapped = cv2.resize(swapped, (w * 4, h * 4),
+                                 interpolation=cv2.INTER_LANCZOS4)
 
     _progress(97, "Computing quality metrics...")
     quality = compute_quality_score(swapped, target, src_lm, tgt_lm)

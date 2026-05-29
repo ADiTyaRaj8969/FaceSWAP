@@ -30,8 +30,9 @@ from PIL import Image
 from core.detector import detect_faces
 from core.swapper import swap_face_insightface
 from core.segmentor import segment_hair_neck_skin
-from core.skin_tone import analyze_skin_tone
+from core.skin_tone import analyze_skin_tone, match_skin_tone
 from core.neck_integrator import seamless_hair_to_neck_blend
+from core.blender import laplacian_blend, poisson_blend
 from core.quality_checker import compute_quality_score
 from utils.image_io import save_image, resize_keep_aspect
 
@@ -178,9 +179,9 @@ def api_swap():
         neck_blend     = int(request.form.get("neck_blend",    75)) / 100.0
         blend_strength = int(request.form.get("blend_strength",85)) / 100.0
 
-        # -- resize -----------------------------------------------------------
-        source = resize_keep_aspect(source, 1024)
-        target = resize_keep_aspect(target, 1024)
+        # -- resize (2048 gives InsightFace more texture to work with) --------
+        source = resize_keep_aspect(source, 2048)
+        target = resize_keep_aspect(target, 2048)
 
         # -- face detection ---------------------------------------------------
         faces_src = _safe_detect(source)
@@ -190,20 +191,31 @@ def api_swap():
         if not faces_tgt:
             return jsonify({"ok": False, "error": "No face detected in target image"}), 400
 
-        # -- pipeline ---------------------------------------------------------
-        src_tone  = analyze_skin_tone(source, faces_src[0])
-        tgt_tone  = analyze_skin_tone(target, faces_tgt[0])
-        delta_e   = (
+        # -- skin tone analysis -----------------------------------------------
+        src_tone = analyze_skin_tone(source, faces_src[0])
+        tgt_tone = analyze_skin_tone(target, faces_tgt[0])
+        delta_e  = (
             (src_tone["L"] - tgt_tone["L"]) ** 2 +
             (src_tone["a"] - tgt_tone["a"]) ** 2 +
             (src_tone["b"] - tgt_tone["b"]) ** 2
         ) ** 0.5
 
+        # -- segmentation (needed for masking) --------------------------------
+        tgt_masks = segment_hair_neck_skin(target)
+        face_mask = tgt_masks.get("face_mask")
+
         # 1. Core face swap (InsightFace inswapper_128)
         swapped = swap_face_insightface(source, target)
 
-        # 2. Extend blend from face → hair boundary → neck
-        tgt_masks = segment_hair_neck_skin(target)
+        # 2. Match face skin tone to source — only inside face region so hair
+        #    and neck are not colour-shifted.
+        swapped = match_skin_tone(
+            swapped, source, src_tone, src_tone,
+            strength=0.6,
+            face_mask=face_mask,
+        )
+
+        # 3. Seamless hair → face → neck blend
         swapped = seamless_hair_to_neck_blend(
             source_img=swapped, target_img=target,
             src_masks=tgt_masks, tgt_masks=tgt_masks,
@@ -213,22 +225,35 @@ def api_swap():
             blend_strength=blend_strength,
         )
 
-        # Skin tone is preserved naturally by InsightFace — no override needed
+        # 4. Laplacian pyramid + Poisson seamless-clone to remove paste edges
+        if face_mask is not None:
+            swapped = laplacian_blend(target, swapped, face_mask, levels=4)
+            swapped = poisson_blend(swapped, target, face_mask)
 
+        # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(
             swapped, target,
-            np.zeros((0, 2), dtype=np.float32),
-            np.zeros((0, 2), dtype=np.float32),
+            None,   # landmarks not extracted in web pipeline — returns 50.0
+            None,
         )
 
-        # -- save output -------------------------------------------------------
+        # -- 4K upscale for download (Lanczos fallback when SR models absent) -
+        try:
+            from core.super_res import enhance_resolution
+            hi_res = enhance_resolution(swapped, scale=4)
+        except Exception:
+            h, w = swapped.shape[:2]
+            hi_res = cv2.resize(swapped, (w * 4, h * 4),
+                                interpolation=cv2.INTER_LANCZOS4)
+
+        # -- save 4K PNG output -----------------------------------------------
         out_name = f"swap_{uuid.uuid4().hex[:8]}.png"
         out_path = os.path.join(OUTPUT_DIR, out_name)
-        save_image(swapped, out_path)
+        save_image(hi_res, out_path)
 
         return jsonify({
             "ok": True,
-            "result_image": _encode_image(swapped, fmt="JPEG", quality=90),
+            "result_image": _encode_image(swapped, fmt="JPEG", quality=92),
             "quality": quality,
             "delta_e": round(delta_e, 2),
             "src_tone": src_tone,

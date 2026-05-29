@@ -2,7 +2,6 @@
 Download pretrained model weights required by the pipeline.
 Run: python scripts/download_models.py
 """
-import os
 import sys
 import urllib.request
 from pathlib import Path
@@ -14,13 +13,21 @@ MODELS_DIR.mkdir(exist_ok=True)
 MODELS = {
     "inswapper_128.onnx": (
         "https://huggingface.co/deepinsight/inswapper/resolve/main/inswapper_128.onnx",
-        "InsightFace face-swap model (required)"
+        "InsightFace face-swap model (required)",
+    ),
+    "RealESRGAN_x4plus.pth": (
+        "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+        "RealESRGAN x4 upscaler — enables 4K output (optional but recommended)",
+    ),
+    "GFPGANv1.4.pth": (
+        "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth",
+        "GFPGAN face restoration — fixes InsightFace blur (optional but recommended)",
     ),
 }
 
 # Note: BiSeNet and RetinaFace weights are downloaded automatically by
-# their respective Python packages on first use. Only the InsightFace
-# inswapper model requires a manual download.
+# their respective Python packages on first use. Only the models listed
+# above require a manual download.
 
 
 def _progress_hook(block_num, block_size, total_size):

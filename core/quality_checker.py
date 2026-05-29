@@ -5,8 +5,8 @@ import numpy as np
 def compute_quality_score(
     swapped: np.ndarray,
     target: np.ndarray,
-    src_landmarks: np.ndarray,
-    tgt_landmarks: np.ndarray
+    src_landmarks,   # type: np.ndarray | None
+    tgt_landmarks,   # type: np.ndarray | None
 ) -> dict:
     """
     Compute quality metrics for the swap result.
@@ -25,16 +25,19 @@ def compute_quality_score(
     }
 
 
-def _alignment_score(src_lm: np.ndarray, tgt_lm: np.ndarray) -> float:
+def _alignment_score(src_lm, tgt_lm) -> float:
     """Mean pixel deviation between landmark sets, converted to 0-100 score."""
     if src_lm is None or tgt_lm is None:
         return 50.0
     n = min(len(src_lm), len(tgt_lm))
+    if n == 0:
+        return 50.0
     diff = np.linalg.norm(src_lm[:n] - tgt_lm[:n], axis=1)
-    mean_err = diff.mean()
-    # Map: 0px -> 100, 10px -> 0
+    mean_err = float(diff.mean())
+    if not np.isfinite(mean_err):
+        return 50.0
     score = max(0.0, 100.0 - mean_err * 10.0)
-    return round(float(score), 1)
+    return round(score, 1)
 
 
 def _blend_quality(swapped: np.ndarray, target: np.ndarray) -> float:
@@ -50,7 +53,7 @@ def _blend_quality(swapped: np.ndarray, target: np.ndarray) -> float:
     discontinuity = np.abs(edges).mean()
     # Map: 0 -> 100, 30 -> 0
     score = max(0.0, 100.0 - discontinuity * (100.0 / 30.0))
-    return round(float(score), 1)
+    return round(score, 1)
 
 
 def _compute_delta_e(swapped: np.ndarray, target: np.ndarray) -> float:
@@ -94,4 +97,4 @@ def _naturalness_score(swapped: np.ndarray) -> float:
     noise_penalty = min(noise / 1000.0, 20.0)
 
     score = max(0.0, 100.0 - clip_penalty - sat_penalty - noise_penalty)
-    return round(float(score), 1)
+    return round(score, 1)

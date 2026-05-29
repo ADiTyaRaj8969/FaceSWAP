@@ -114,10 +114,12 @@ def _restore_glasses_region(swapped: np.ndarray, original_target: np.ndarray, fa
 
 def _sharpen_face_region(image: np.ndarray, tgt_faces: list) -> np.ndarray:
     """
-    Sharpen + even skin tone in each swapped face region.
-    - Unsharp mask restores detail lost in InsightFace's 128x128 internal resize.
-    - Bilateral filter smooths out skin blotchiness while preserving edges.
-    - Colour correction at the face boundary blends the two skin tones.
+    Recover detail lost in InsightFace's 128x128 internal resize.
+    Strategy:
+      - Mild bilateral filter to remove compression artefacts (not texture).
+      - Unsharp mask on the ORIGINAL crop (not the blurred version) for true
+        high-frequency recovery; 2.3x strength gives clean edges without halos.
+      - Blend sharp + smooth so skin stays natural while edges are crisp.
     """
     result = image.copy()
     h, w   = image.shape[:2]
@@ -132,14 +134,17 @@ def _sharpen_face_region(image: np.ndarray, tgt_faces: list) -> np.ndarray:
         if crop.size == 0:
             continue
 
-        # 1. Even skin tone — bilateral filter (smooth blotches, keep edges)
-        smooth = cv2.bilateralFilter(crop, d=9, sigmaColor=60, sigmaSpace=60)
+        # 1. Mild bilateral — removes compression blotches while keeping edges
+        smooth = cv2.bilateralFilter(crop, d=5, sigmaColor=30, sigmaSpace=30)
 
-        # 2. Sharpen — unsharp mask on top of smoothed
-        blur   = cv2.GaussianBlur(smooth, (0, 0), sigmaX=2.5)
-        sharp  = cv2.addWeighted(smooth, 1.6, blur, -0.6, 0)
+        # 2. Unsharp mask on ORIGINAL crop — true detail recovery
+        blur  = cv2.GaussianBlur(crop, (0, 0), sigmaX=1.5)
+        sharp = cv2.addWeighted(crop, 2.3, blur, -1.3, 0)
 
-        # 3. Feathered paste — fade near the crop edges so no hard border
+        # 3. Composite: 55% sharp detail + 45% smooth skin base
+        enhanced = cv2.addWeighted(sharp, 0.55, smooth, 0.45, 0)
+
+        # 4. Feathered paste — no hard border at crop edges
         fh, fw = crop.shape[:2]
         feather = np.ones((fh, fw), dtype=np.float32)
         border  = max(4, pad // 2)
@@ -152,7 +157,7 @@ def _sharpen_face_region(image: np.ndarray, tgt_faces: list) -> np.ndarray:
         feather = np.stack([feather] * 3, axis=-1)
 
         result[y1p:y2p, x1p:x2p] = (
-            sharp.astype(np.float32) * feather +
+            enhanced.astype(np.float32) * feather +
             result[y1p:y2p, x1p:x2p].astype(np.float32) * (1 - feather)
         ).astype(np.uint8)
 
