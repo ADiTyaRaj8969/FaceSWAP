@@ -1,8 +1,10 @@
+import os
 import cv2
 import numpy as np
 
 _face_cascade = None
 _insightface_app = None
+_insightface_failed = False   # True only after a real load error (not "not downloaded yet")
 
 
 def _get_cascade():
@@ -14,13 +16,24 @@ def _get_cascade():
     return _face_cascade
 
 
-_insightface_load_attempted = False
+def _buffalo_ready() -> bool:
+    """Return True if buffalo_l model files are already on disk."""
+    path = os.path.expanduser("~/.insightface/models/buffalo_l")
+    return os.path.isdir(path) and len(os.listdir(path)) > 0
+
 
 def _get_insightface():
-    global _insightface_app, _insightface_load_attempted
-    if _insightface_load_attempted:
-        return _insightface_app  # None if it failed before — don't retry
-    _insightface_load_attempted = True
+    global _insightface_app, _insightface_failed
+
+    if _insightface_app is not None:
+        return _insightface_app          # already loaded
+
+    if _insightface_failed:
+        return None                      # previously errored — don't retry
+
+    if not _buffalo_ready():
+        return None                      # models not downloaded yet — retry next call
+
     try:
         import insightface
         _insightface_app = insightface.app.FaceAnalysis(
@@ -31,23 +44,20 @@ def _get_insightface():
         print("[detector] InsightFace buffalo_l loaded OK")
     except Exception as e:
         print(f"[detector] InsightFace load failed: {e}")
+        _insightface_failed = True
         _insightface_app = None
+
     return _insightface_app
 
 
 def detect_faces(image: np.ndarray) -> list:
-    """
-    Detect faces in image. Returns list of (x1, y1, x2, y2) bounding boxes.
-    Tries InsightFace first, falls back to OpenCV Haar cascade.
-    """
     if image is None or image.size == 0:
         return []
 
-    # Try InsightFace
     app = _get_insightface()
     if app is not None:
         try:
-            faces = app.get(image)  # InsightFace expects BGR (OpenCV native)
+            faces = app.get(image)
             if faces:
                 bboxes = []
                 for face in faces:
@@ -61,26 +71,20 @@ def detect_faces(image: np.ndarray) -> list:
         except Exception:
             pass
 
-    # Fallback: OpenCV Haar cascade
+    # Fallback: Haar cascade
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     cascade = _get_cascade()
-    detections = cascade.detectMultiScale(
-        gray, scaleFactor=1.1, minNeighbors=5, minSize=(64, 64)
-    )
+    detections = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(64, 64))
     if len(detections) == 0:
         return []
-    bboxes = []
-    for (x, y, w, h) in detections:
-        bboxes.append((x, y, x + w, y + h))
-    return bboxes
+    return [(x, y, x + w, y + h) for (x, y, w, h) in detections]
 
 
 def get_insightface_faces(image: np.ndarray):
-    """Return raw InsightFace face objects (for use with swapper)."""
     app = _get_insightface()
     if app is None:
         return []
     try:
-        return app.get(image)  # InsightFace expects BGR
+        return app.get(image)
     except Exception:
         return []

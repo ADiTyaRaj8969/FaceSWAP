@@ -1,8 +1,9 @@
 {
   "pythonVersion": "3.10",
   "pythonPlatform": "Windows",
-  "venvPath": "C:/Users/PC/anaconda3/envs",
-  "venv": "brain_ssl",
+  "extraPaths": [
+    "C:/Users/PC/anaconda3/envs/brain_ssl/Lib/site-packages"
+  ],
   "include": ["."],
   "exclude": ["frontend", "static", "uploads", "outputs", "models"]
 }
