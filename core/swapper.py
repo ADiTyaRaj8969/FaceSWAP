@@ -35,7 +35,19 @@ def _load_swapper():
         return None
 
 
-def swap_face_insightface(source: np.ndarray, target: np.ndarray) -> np.ndarray:
+def swap_face_insightface(
+    source: np.ndarray,
+    target: np.ndarray,
+    preserve_glasses: bool = False,
+) -> np.ndarray:
+    """
+    Full-identity face swap. The source face replaces every target face.
+
+    preserve_glasses: when True, the target's eye/spectacle region is blended
+    back over the swap (use only for targets that actually wear glasses). It is
+    OFF by default — restoring that region pastes the target's eyes back, which
+    is the strongest identity cue and makes the swap look incomplete.
+    """
     swapper = _load_swapper()
     app     = _get_insightface()
 
@@ -50,12 +62,14 @@ def swap_face_insightface(source: np.ndarray, target: np.ndarray) -> np.ndarray:
             print(f"[swapper] faces not detected: src={len(src_faces)} tgt={len(tgt_faces)}")
             return _fallback_swap(source, target)
 
-        result   = target.copy()
-        src_face = src_faces[0]
+        # Use the largest source face (most frontal/clear) for the best identity.
+        src_face = max(src_faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+
+        result = target.copy()
         for tgt_face in tgt_faces:
             result = swapper.get(result, tgt_face, src_face, paste_back=True)
-            # If target has glasses, restore that region from original target
-            result = _restore_glasses_region(result, target, tgt_face)
+            if preserve_glasses:
+                result = _restore_glasses_region(result, target, tgt_face)
 
         # Sharpen the swapped face region to recover detail lost in 128x128 internal resize
         result = _sharpen_face_region(result, tgt_faces)
