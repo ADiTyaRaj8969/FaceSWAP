@@ -40,6 +40,9 @@ const GoogleIcon = () => (
   </svg>
 );
 
+const IN_IFRAME = typeof window !== 'undefined' && window.self !== window.top;
+const DIRECT_URL = 'https://aditya-raj19-faceswap.hf.space';
+
 export default function LandingPage() {
   const navigate          = useNavigate();
   const { user, loading } = useAuth();
@@ -50,6 +53,11 @@ export default function LandingPage() {
   const days       = isSignedIn ? daysLeft() : 0;
 
   const doGoogleSignIn = async () => {
+    // Inside HF Spaces iframe popups are always blocked — open direct URL in new tab
+    if (IN_IFRAME) {
+      window.open(DIRECT_URL, '_blank');
+      return;
+    }
     setSigningIn(true);
     setError('');
     try {
@@ -62,7 +70,7 @@ export default function LandingPage() {
       if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
         // user dismissed — no message needed
       } else if (err?.code === 'auth/popup-blocked') {
-        setError('Popup blocked — please allow popups for this site in your browser, then try again.');
+        setError('__popup_blocked__');
       } else if (err?.code === 'auth/unauthorized-domain') {
         setError('Domain not authorised in Firebase. Contact the app owner.');
       } else {
@@ -189,11 +197,23 @@ export default function LandingPage() {
               </Magnet>
             </div>
 
-            {error && (
+            {error === '__popup_blocked__' ? (
+              <div className="flex flex-col items-center gap-2 bg-yellow-900/20 border border-yellow-700/40 rounded-lg px-4 py-3 mt-3">
+                <p className="text-yellow-300 text-sm text-center">Popup blocked by your browser.</p>
+                <a href={DIRECT_URL} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-2 bg-lime text-forest text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#c8d280] transition-colors">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                  </svg>
+                  Open app in new tab to sign in
+                </a>
+              </div>
+            ) : error ? (
               <p className="text-red-400 text-sm bg-red-900/20 border border-red-800/40 rounded-lg px-4 py-2 mt-3">
                 {error}
               </p>
-            )}
+            ) : null}
           </AnimatedContent>
         </div>
       </section>
