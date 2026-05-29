@@ -28,6 +28,9 @@ from .detector import _get_insightface
 _HAIR_CLASSES = {17}                           # hair only (hat 18 excluded — it
                                                # misfires on bright backgrounds)
 _HEAD_CLASSES = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 17}
+# Face skin + ears + neck (NOT eyes/glasses/hair/cloth) — the visible skin whose
+# tone must stay consistent so the swap doesn't look pasted at the jaw.
+_SKIN_NECK_CLASSES = {1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 
 _parser = None
 _parser_failed = False
@@ -59,10 +62,12 @@ def _get_parser():
         return None
 
 
-def _parse_head_mask(image, bbox, classes) -> np.ndarray:
+def _parse_region_mask(image, bbox, classes,
+                       up=0.9, down=0.4, side=0.5) -> np.ndarray:
     """
     Return a full-image float mask (0..1) of the requested parse classes for the
-    head in bbox. The head crop is parsed at 512px and mapped back to image size.
+    head in bbox. The crop (bbox expanded by up/down/side fractions of its size)
+    is parsed at 512px and mapped back to image coordinates.
     """
     import torch
 
@@ -74,11 +79,10 @@ def _parse_head_mask(image, bbox, classes) -> np.ndarray:
 
     x1, y1, x2, y2 = [int(v) for v in bbox]
     bw, bh = x2 - x1, y2 - y1
-    # Expand the box to include hair above and ears/chin around the face.
-    ex1 = max(0, x1 - int(bw * 0.5))
-    ey1 = max(0, y1 - int(bh * 0.9))
-    ex2 = min(w, x2 + int(bw * 0.5))
-    ey2 = min(h, y2 + int(bh * 0.4))
+    ex1 = max(0, x1 - int(bw * side))
+    ey1 = max(0, y1 - int(bh * up))
+    ex2 = min(w, x2 + int(bw * side))
+    ey2 = min(h, y2 + int(bh * down))
     crop = image[ey1:ey2, ex1:ex2]
     if crop.size == 0:
         return full
@@ -138,7 +142,8 @@ def swap_hair(
             return swapped
 
         classes = _HEAD_CLASSES if include_face else _HAIR_CLASSES
-        src_mask = _parse_head_mask(source, src_face.bbox, classes)
+        src_mask = _parse_region_mask(source, src_face.bbox, classes,
+                                      up=0.9, down=0.4, side=0.5)
         if src_mask.max() <= 0:
             print("[head_swap] empty source hair mask — skipping")
             return swapped
@@ -157,12 +162,15 @@ def swap_hair(
         warped_mask = cv2.warpAffine(src_mask, M, (w, h), flags=cv2.INTER_LINEAR)
 
         # Clamp the transferred hair to a plausible head region around the target
-        # face, so a size/pose mismatch can't leave hair floating above the head.
+        # face, so a size/pose mismatch can't leave hair floating in the sky.
+        # The box is generous downward and sideways so LONG hair (e.g. female
+        # styles past the shoulders) is preserved — only far-above/far-aside
+        # stray regions are cut.
         tx1, ty1, tx2, ty2 = [int(v) for v in tgt_face.bbox]
         tbw, tbh = tx2 - tx1, ty2 - ty1
         region = np.zeros((h, w), np.float32)
-        rx1 = max(0, tx1 - int(tbw * 0.6));  ry1 = max(0, ty1 - int(tbh * 1.3))
-        rx2 = min(w, tx2 + int(tbw * 0.6));  ry2 = min(h, ty2 + int(tbh * 0.2))
+        rx1 = max(0, tx1 - int(tbw * 1.2));  ry1 = max(0, ty1 - int(tbh * 1.4))
+        rx2 = min(w, tx2 + int(tbw * 1.2));  ry2 = min(h, ty2 + int(tbh * 3.0))
         region[ry1:ry2, rx1:rx2] = 1.0
         warped_mask *= region
 
@@ -183,3 +191,49 @@ def swap_hair(
     except Exception as e:
         print(f"[head_swap] hair swap error: {e}")
         return swapped
+
+
+def match_skin_to_source(
+    swapped: np.ndarray,
+    source: np.ndarray,
+    src_bbox,
+    tgt_bbox,
+    strength: float = 0.85,
+) -> np.ndarray:
+    """
+    Recolour the whole visible skin region — face AND neck — toward the source
+    complexion so there is no tone seam at the jaw (the "pasted face" look).
+
+    The shift is one uniform LAB offset (source central-face mean minus the
+    swapped central-face mean) applied across a BiSeNet skin+neck mask, feathered
+    at the edge. Because both the face and neck receive the same offset, they end
+    up the same complexion; the mask stops at the collar (cloth is excluded), so
+    the transition to clothing is hidden. Falls back to the face-only ellipse
+    matcher when the parser/mask is unavailable.
+    """
+    from .skin_tone import _central_mean_lab, match_face_to_source_tone
+
+    src_mean = _central_mean_lab(source, src_bbox)
+    swp_mean = _central_mean_lab(swapped, tgt_bbox)
+    if src_mean is None or swp_mean is None:
+        return swapped
+
+    # Skin + neck mask on the swapped image (target geometry). Expand the parse
+    # box well below the chin so the neck is captured.
+    mask = _parse_region_mask(swapped, tgt_bbox, _SKIN_NECK_CLASSES,
+                              up=0.3, down=1.8, side=0.7)
+    if mask.max() <= 0:
+        # No parse — fall back to recolouring just the face oval.
+        return match_face_to_source_tone(swapped, source, src_bbox, tgt_bbox,
+                                         strength=strength)
+
+    h, w = swapped.shape[:2]
+    k = max(3, int(min(h, w) * 0.03) | 1)
+    mask = cv2.GaussianBlur(mask, (k, k), 0)
+    mask = np.clip(mask, 0.0, 1.0)
+
+    delta = (src_mean - swp_mean) * strength
+    lab = cv2.cvtColor(swapped, cv2.COLOR_BGR2LAB).astype(np.float32)
+    for c in range(3):
+        lab[:, :, c] += delta[c] * mask
+    return cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
