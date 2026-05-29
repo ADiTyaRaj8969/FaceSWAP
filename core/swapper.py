@@ -2,17 +2,21 @@ import cv2
 import numpy as np
 import os
 
+from core.detector import _get_insightface  # reuse shared buffalo_l instance
+
 _swapper_model = None
-_insightface_app = None
+_swapper_load_attempted = False
 
 
 def _load_swapper():
-    global _swapper_model
-    if _swapper_model is not None:
+    global _swapper_model, _swapper_load_attempted
+    if _swapper_load_attempted:
         return _swapper_model
+    _swapper_load_attempted = True
 
     model_path = "models/inswapper_128.onnx"
     if not os.path.exists(model_path):
+        print("[swapper] inswapper_128.onnx not found")
         return None
 
     try:
@@ -20,27 +24,10 @@ def _load_swapper():
         _swapper_model = insightface.model_zoo.get_model(
             model_path, providers=["CPUExecutionProvider"]
         )
+        print("[swapper] inswapper_128 loaded OK")
         return _swapper_model
     except Exception as e:
         print(f"[swapper] load_swapper failed: {e}")
-        return None
-
-
-def _load_app():
-    global _insightface_app
-    if _insightface_app is not None:
-        return _insightface_app
-
-    try:
-        import insightface
-        _insightface_app = insightface.app.FaceAnalysis(
-            name="buffalo_l",
-            providers=["CPUExecutionProvider"]
-        )
-        _insightface_app.prepare(ctx_id=0, det_size=(640, 640))
-        return _insightface_app
-    except Exception as e:
-        print(f"[swapper] load_app failed: {e}")
         return None
 
 
@@ -51,7 +38,7 @@ def swap_face_insightface(source: np.ndarray, target: np.ndarray) -> np.ndarray:
     Falls back to a simple alpha-blend paste if the model is unavailable.
     """
     swapper = _load_swapper()
-    app = _load_app()
+    app = _get_insightface()
 
     if swapper is None or app is None:
         return _fallback_swap(source, target)

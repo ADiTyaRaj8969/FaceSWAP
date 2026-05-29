@@ -14,18 +14,24 @@ def _get_cascade():
     return _face_cascade
 
 
+_insightface_load_attempted = False
+
 def _get_insightface():
-    global _insightface_app
-    if _insightface_app is None:
-        try:
-            import insightface
-            _insightface_app = insightface.app.FaceAnalysis(
-                name="buffalo_l",
-                providers=["CPUExecutionProvider"]
-            )
-            _insightface_app.prepare(ctx_id=0, det_size=(640, 640))
-        except Exception:
-            _insightface_app = None
+    global _insightface_app, _insightface_load_attempted
+    if _insightface_load_attempted:
+        return _insightface_app  # None if it failed before — don't retry
+    _insightface_load_attempted = True
+    try:
+        import insightface
+        _insightface_app = insightface.app.FaceAnalysis(
+            name="buffalo_l",
+            providers=["CPUExecutionProvider"]
+        )
+        _insightface_app.prepare(ctx_id=0, det_size=(640, 640))
+        print("[detector] InsightFace buffalo_l loaded OK")
+    except Exception as e:
+        print(f"[detector] InsightFace load failed: {e}")
+        _insightface_app = None
     return _insightface_app
 
 
