@@ -34,6 +34,7 @@ jobs:
             flask==3.0.3 \
             flask-cors==4.0.1 \
             python-dotenv==1.0.1 \
+            onnxruntime==1.19.2 \
             pytest==8.2.0
 
       - name: Run tests

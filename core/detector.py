@@ -1,14 +1,16 @@
 import os
 import cv2
+import cv2.data
 import numpy as np
-import onnxruntime as ort
-
-# Auto-select GPU if available, fall back to CPU
-_ORT_PROVIDERS = (
-    ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    if "CUDAExecutionProvider" in ort.get_available_providers()
-    else ["CPUExecutionProvider"]
-)
+try:
+    import onnxruntime as ort
+    _ORT_PROVIDERS = (
+        ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        if "CUDAExecutionProvider" in ort.get_available_providers()
+        else ["CPUExecutionProvider"]
+    )
+except ImportError:
+    _ORT_PROVIDERS = ["CPUExecutionProvider"]
 
 _face_cascade = None
 _insightface_app = None

@@ -1,5 +1,6 @@
 import os
 import cv2
+import cv2.data
 import numpy as np
 
 from .detector import _get_insightface, _ORT_PROVIDERS  # reuse shared instance + providers
