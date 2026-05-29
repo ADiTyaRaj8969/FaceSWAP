@@ -29,7 +29,9 @@ from PIL import Image
 
 from core.detector import detect_faces
 from core.swapper import swap_face_insightface
+from core.segmentor import segment_hair_neck_skin
 from core.skin_tone import analyze_skin_tone, match_skin_tone
+from core.neck_integrator import seamless_hair_to_neck_blend
 from core.quality_checker import compute_quality_score
 from utils.image_io import save_image, resize_keep_aspect
 
@@ -172,7 +174,10 @@ def api_swap():
             return jsonify({"ok": False, "error": "Could not decode one or both images"}), 400
 
         # -- parameters -------------------------------------------------------
-        tone_match = int(request.form.get("tone_match", 90)) / 100.0
+        tone_match     = int(request.form.get("tone_match",    90)) / 100.0
+        hair_preserve  = int(request.form.get("hair_preserve", 80)) / 100.0
+        neck_blend     = int(request.form.get("neck_blend",    75)) / 100.0
+        blend_strength = int(request.form.get("blend_strength",85)) / 100.0
 
         # -- resize -----------------------------------------------------------
         source = resize_keep_aspect(source, 1024)
@@ -187,20 +192,29 @@ def api_swap():
             return jsonify({"ok": False, "error": "No face detected in target image"}), 400
 
         # -- pipeline ---------------------------------------------------------
-        # InsightFace inswapper handles blending internally — keep post-processing
-        # minimal to preserve quality and speed.
-        src_tone = analyze_skin_tone(source, faces_src[0])
-        tgt_tone = analyze_skin_tone(target, faces_tgt[0])
-        delta_e  = (
+        src_tone  = analyze_skin_tone(source, faces_src[0])
+        tgt_tone  = analyze_skin_tone(target, faces_tgt[0])
+        delta_e   = (
             (src_tone["L"] - tgt_tone["L"]) ** 2 +
             (src_tone["a"] - tgt_tone["a"]) ** 2 +
             (src_tone["b"] - tgt_tone["b"]) ** 2
         ) ** 0.5
 
-        # 1. Core swap (InsightFace inswapper_128)
+        # 1. Core face swap (InsightFace inswapper_128)
         swapped = swap_face_insightface(source, target)
 
-        # 2. Light skin tone correction only when tones differ significantly
+        # 2. Extend blend from face → hair boundary → neck
+        tgt_masks = segment_hair_neck_skin(target)
+        swapped = seamless_hair_to_neck_blend(
+            source_img=swapped, target_img=target,
+            src_masks=tgt_masks, tgt_masks=tgt_masks,
+            src_landmarks=None, tgt_landmarks=None,
+            hair_preserve=hair_preserve,
+            neck_strength=neck_blend,
+            blend_strength=blend_strength,
+        )
+
+        # 3. Skin tone correction only when tones differ significantly
         if delta_e > 10:
             swapped = match_skin_tone(swapped, target, src_tone, tgt_tone,
                                       strength=min(tone_match, 0.5))
