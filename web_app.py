@@ -31,6 +31,7 @@ from core.detector import detect_faces
 from core.swapper import swap_face_insightface
 from core.skin_tone import analyze_skin_tone, match_face_to_source_tone
 from core.super_res import restore_faces, upscale_image
+from core.head_swap import swap_hair
 from core.quality_checker import compute_quality_score
 from utils.image_io import save_image, resize_keep_aspect
 
@@ -212,6 +213,13 @@ def api_swap():
         swapped = match_face_to_source_tone(
             swapped, source, faces_src[0], faces_tgt[0], strength=0.7
         )
+
+        # 4. Optional: transplant the source's hair/head (opt-in). InsightFace
+        #    only swaps the face, so this is what makes the hair change too.
+        swap_hair_flag = request.form.get("swap_hair", "0") in ("1", "true", "on")
+        full_head      = request.form.get("full_head", "0") in ("1", "true", "on")
+        if swap_hair_flag or full_head:
+            swapped = swap_hair(swapped, source, target, include_face=full_head)
 
         # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(swapped, target, None, None)
