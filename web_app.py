@@ -30,7 +30,7 @@ from PIL import Image
 from core.detector import detect_faces
 from core.swapper import swap_face_insightface
 from core.segmentor import segment_hair_neck_skin
-from core.skin_tone import analyze_skin_tone, match_skin_tone
+from core.skin_tone import analyze_skin_tone
 from core.neck_integrator import seamless_hair_to_neck_blend
 from core.quality_checker import compute_quality_score
 from utils.image_io import save_image, resize_keep_aspect
@@ -174,7 +174,6 @@ def api_swap():
             return jsonify({"ok": False, "error": "Could not decode one or both images"}), 400
 
         # -- parameters -------------------------------------------------------
-        tone_match     = int(request.form.get("tone_match",    90)) / 100.0
         hair_preserve  = int(request.form.get("hair_preserve", 80)) / 100.0
         neck_blend     = int(request.form.get("neck_blend",    75)) / 100.0
         blend_strength = int(request.form.get("blend_strength",85)) / 100.0
@@ -214,10 +213,7 @@ def api_swap():
             blend_strength=blend_strength,
         )
 
-        # 3. Skin tone correction only when tones differ significantly
-        if delta_e > 10:
-            swapped = match_skin_tone(swapped, target, src_tone, tgt_tone,
-                                      strength=min(tone_match, 0.5))
+        # Skin tone is preserved naturally by InsightFace — no override needed
 
         quality = compute_quality_score(
             swapped, target,
