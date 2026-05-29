@@ -6,6 +6,10 @@
 flask==3.0.3
 flask-cors==4.0.1
 
+# Calls the hosted HairFastGAN Space for high-quality hair transfer (opt-in).
+# Set HAIRFAST_SPACE to your own duplicated GPU Space + HF_TOKEN for reliability.
+gradio_client>=1.3.0
+
 # Image processing
 opencv-python-headless==4.9.0.80
 numpy==1.26.4

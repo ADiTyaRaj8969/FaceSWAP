@@ -35,6 +35,9 @@ realesrgan==0.3.0
 flask==3.0.3
 flask-cors>=4.0.0
 
+# High-quality hair transfer via hosted HairFastGAN Space (optional, GPU)
+gradio_client>=1.3.0
+
 # Utils
 tqdm==4.66.4
 pyyaml==6.0.1

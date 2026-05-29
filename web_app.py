@@ -32,6 +32,7 @@ from core.swapper import swap_face_insightface
 from core.skin_tone import analyze_skin_tone
 from core.super_res import restore_faces, upscale_image
 from core.head_swap import swap_hair, match_skin_to_source
+from core.hair_transfer import transfer_hair
 from core.quality_checker import compute_quality_score
 from utils.image_io import save_image, resize_keep_aspect
 
@@ -215,12 +216,26 @@ def api_swap():
             swapped, source, faces_src[0], faces_tgt[0], strength=0.85
         )
 
-        # 4. Optional: transplant the source's hair/head (opt-in). InsightFace
-        #    only swaps the face, so this is what makes the hair change too.
+        # 4. Optional: transplant the source's hair (opt-in). InsightFace only
+        #    swaps the face, so this is what makes the hair change too.
+        #    Preferred: HairFastGAN (StyleGAN, GPU server-side) for a high-quality
+        #    hairstyle, pasted back into the scene. Fallback: the lightweight
+        #    local warp-composite when the Space is unavailable.
         swap_hair_flag = request.form.get("swap_hair", "0") in ("1", "true", "on")
         full_head      = request.form.get("full_head", "0") in ("1", "true", "on")
         if swap_hair_flag or full_head:
-            swapped = swap_hair(swapped, source, target, include_face=full_head)
+            hf_portrait = None
+            try:
+                hf_portrait = transfer_hair(face_bgr=swapped, shape_bgr=source,
+                                            color_bgr=source)
+            except Exception as e:
+                print(f"[swap] hair transfer error: {e}")
+            if hf_portrait is not None:
+                # HairFast returns an aligned portrait; warp its hair onto the scene.
+                swapped = swap_hair(swapped, hf_portrait, swapped, include_face=False)
+            else:
+                # Space unavailable → lightweight source-hair composite.
+                swapped = swap_hair(swapped, source, target, include_face=full_head)
 
         # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(swapped, target, None, None)
