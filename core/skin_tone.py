@@ -125,6 +125,70 @@ def match_skin_tone(
     return corrected_bgr
 
 
+def _central_mean_lab(img: np.ndarray, bbox):
+    """Mean CIE-LAB of the central face oval inside bbox (avoids hair/beard/bg)."""
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(img.shape[1], x2), min(img.shape[0], y2)
+    crop = img[y1:y2, x1:x2]
+    if crop.size == 0:
+        return None
+    h, w = crop.shape[:2]
+    mask = np.zeros((h, w), np.uint8)
+    cv2.ellipse(mask, (w // 2, h // 2), (int(w * 0.32), int(h * 0.42)),
+                0, 0, 360, 255, -1)
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+    return np.array(cv2.mean(lab, mask=mask)[:3], np.float32)
+
+
+def match_face_to_source_tone(
+    swapped: np.ndarray,
+    source: np.ndarray,
+    src_bbox,
+    tgt_bbox,
+    strength: float = 0.7,
+) -> np.ndarray:
+    """
+    Shift the swapped face's complexion toward the SOURCE skin tone.
+
+    Mean LAB is sampled from the central face oval of both the source and the
+    swapped result, and the per-channel difference is added back over the target
+    face box through a feathered ellipse — so the neck/body are left alone and
+    only the face takes on the source's complexion. strength scales how fully it
+    matches (1.0 = exact source mean).
+    """
+    src_mean = _central_mean_lab(source, src_bbox)
+    swp_mean = _central_mean_lab(swapped, tgt_bbox)
+    if src_mean is None or swp_mean is None:
+        return swapped
+
+    delta = (src_mean - swp_mean) * strength
+
+    x1, y1, x2, y2 = [int(v) for v in tgt_bbox]
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(swapped.shape[1], x2), min(swapped.shape[0], y2)
+    if x2 <= x1 or y2 <= y1:
+        return swapped
+
+    crop = swapped[y1:y2, x1:x2]
+    h, w = crop.shape[:2]
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB).astype(np.float32)
+
+    # Feathered ellipse so the shift fades out before the jaw/hairline.
+    feather = np.zeros((h, w), np.float32)
+    cv2.ellipse(feather, (w // 2, h // 2), (int(w * 0.48), int(h * 0.58)),
+                0, 0, 360, 1.0, -1)
+    feather = cv2.GaussianBlur(feather, (0, 0), sigmaX=max(2.0, w * 0.08))
+
+    for c in range(3):
+        lab[:, :, c] += delta[c] * feather
+
+    out = cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
+    result = swapped.copy()
+    result[y1:y2, x1:x2] = out
+    return result
+
+
 def _default_tone() -> dict:
     return dict(L=55.0, a=5.0, b=10.0, hue=25.0, saturation=35.0,
                 undertone="Neutral", category="Medium")

@@ -29,7 +29,7 @@ from PIL import Image
 
 from core.detector import detect_faces
 from core.swapper import swap_face_insightface
-from core.skin_tone import analyze_skin_tone
+from core.skin_tone import analyze_skin_tone, match_face_to_source_tone
 from core.super_res import restore_faces, upscale_image
 from core.quality_checker import compute_quality_score
 from utils.image_io import save_image, resize_keep_aspect
@@ -206,6 +206,12 @@ def api_swap():
         #    swap. THIS is what removes the blur; it runs before the preview is
         #    encoded so the on-screen result is sharp, not just the download.
         swapped = restore_faces(swapped)
+
+        # 3. Match the swapped face's complexion to the SOURCE (only the face
+        #    box, feathered — neck/body untouched).
+        swapped = match_face_to_source_tone(
+            swapped, source, faces_src[0], faces_tgt[0], strength=0.7
+        )
 
         # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(swapped, target, None, None)
