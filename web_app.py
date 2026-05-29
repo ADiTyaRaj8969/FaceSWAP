@@ -21,6 +21,7 @@ mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("application/json", ".json")
 
 import cv2
+import cv2.data
 import numpy as np
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
@@ -259,8 +260,9 @@ def _prewarm_models():
     """Load heavy ML models at startup so the first swap request is fast."""
     print("Pre-warming ML models (this takes ~30s on first run)...")
     try:
-        from core.swapper import _load_swapper, _load_app
-        _load_app()
+        from core.detector import _get_insightface
+        from core.swapper import _load_swapper
+        _get_insightface()
         _load_swapper()
         print("Models ready.")
     except Exception as e:
