@@ -53,7 +53,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # -- helpers -------------------------------------------------------------------
 
-def _decode_image(data_or_file) -> np.ndarray:
+def _decode_image(data_or_file) -> np.ndarray | None:
     """Accept either a Flask FileStorage or a base64 data-URI string."""
     if isinstance(data_or_file, str):
         # base64 data URI: "data:image/jpeg;base64,<data>"
@@ -220,11 +220,18 @@ def api_swap():
             blend_strength=blend_strength,
         )
         blend_mask = tgt_masks["face_mask"]
-        swapped = laplacian_blend(target, swapped, blend_mask, levels=4)
+        # laplacian_blend: img1*mask + img2*(1-mask)
+        # mask=1 inside face → img1 must be swapped face, img2 must be target background
+        swapped = laplacian_blend(swapped, target, blend_mask, levels=4)
         swapped = poisson_blend(swapped, target, blend_mask)
         swapped = harmonize_colors(swapped, target, tgt_masks)
 
-        quality = compute_quality_score(swapped, target, src_lm, tgt_lm)
+        _empty_lm = np.zeros((0, 2), dtype=np.float32)
+        quality = compute_quality_score(
+            swapped, target,
+            src_lm if src_lm is not None else _empty_lm,
+            tgt_lm if tgt_lm is not None else _empty_lm,
+        )
 
         # -- save output -------------------------------------------------------
         out_name = f"swap_{uuid.uuid4().hex[:8]}.png"
