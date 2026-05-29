@@ -54,6 +54,8 @@ def swap_face_insightface(source: np.ndarray, target: np.ndarray) -> np.ndarray:
         src_face = src_faces[0]
         for tgt_face in tgt_faces:
             result = swapper.get(result, tgt_face, src_face, paste_back=True)
+            # If target has glasses, restore that region from original target
+            result = _restore_glasses_region(result, target, tgt_face)
 
         # Sharpen the swapped face region to recover detail lost in 128x128 internal resize
         result = _sharpen_face_region(result, tgt_faces)
@@ -61,6 +63,53 @@ def swap_face_insightface(source: np.ndarray, target: np.ndarray) -> np.ndarray:
     except Exception as e:
         print(f"[swapper] swap error: {e}")
         return _fallback_swap(source, target)
+
+
+def _restore_glasses_region(swapped: np.ndarray, original_target: np.ndarray, face) -> np.ndarray:
+    """
+    Restore the glasses/eye region from the original target so spectacles
+    (frames + lenses) are preserved cleanly regardless of the source face.
+    Uses InsightFace 5-keypoint or 68/106-landmark eye positions.
+    """
+    h, w = swapped.shape[:2]
+    result = swapped.copy()
+
+    try:
+        # Get eye centre positions from keypoints [0]=left eye, [1]=right eye
+        kps = face.kps  # shape (5,2): left_eye, right_eye, nose, left_mouth, right_mouth
+        le, re = kps[0], kps[1]
+
+        # Estimate glasses bounding box: wide enough to cover frames + nose bridge
+        eye_dist   = float(np.linalg.norm(re - le))
+        cx         = int((le[0] + re[0]) / 2)
+        cy         = int((le[1] + re[1]) / 2)
+        half_w     = int(eye_dist * 0.80)
+        half_h     = int(eye_dist * 0.38)
+
+        gx1 = max(0, cx - half_w);  gx2 = min(w, cx + half_w)
+        gy1 = max(0, cy - half_h);  gy2 = min(h, cy + half_h)
+
+        if gx2 <= gx1 or gy2 <= gy1:
+            return result
+
+        rh, rw = gy2 - gy1, gx2 - gx1
+
+        # Feathered blend: original target fully in centre, fade to swapped at edges
+        mask = np.zeros((rh, rw), dtype=np.float32)
+        cv2.ellipse(mask, (rw // 2, rh // 2), (rw // 2, rh // 2),
+                    0, 0, 360, 1.0, -1)
+        mask = cv2.GaussianBlur(mask, (0, 0), sigmaX=rw * 0.12)
+        mask = np.stack([mask] * 3, axis=-1)
+
+        tgt_crop = original_target[gy1:gy2, gx1:gx2].astype(np.float32)
+        swp_crop = swapped[gy1:gy2, gx1:gx2].astype(np.float32)
+        blended  = tgt_crop * mask + swp_crop * (1 - mask)
+
+        result[gy1:gy2, gx1:gx2] = np.clip(blended, 0, 255).astype(np.uint8)
+    except Exception:
+        pass  # no landmarks → skip silently
+
+    return result
 
 
 def _sharpen_face_region(image: np.ndarray, tgt_faces: list) -> np.ndarray:
