@@ -3,6 +3,13 @@ import numpy as np
 
 _bisenet_model = None
 
+def _torch_device():
+    try:
+        import torch
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    except Exception:
+        return "cpu"
+
 
 def _get_bisenet():
     """Load BiSeNet model if available; returns None otherwise."""
@@ -21,11 +28,12 @@ def _get_bisenet():
 
         # Inline BiSeNet-style model (simplified 19-class face parser)
         from torchvision.models.segmentation import fcn_resnet50
+        device = _torch_device()
         model = fcn_resnet50(num_classes=19, pretrained=False)
-        state = torch.load(model_path, map_location="cpu")
+        state = torch.load(model_path, map_location=device)
         model.load_state_dict(state, strict=False)
-        model.eval()
-        _bisenet_model = model
+        model.eval().to(device)
+        _bisenet_model = (model, device)  # store device alongside model
         return _bisenet_model
     except Exception:
         return None
@@ -47,13 +55,14 @@ def segment_hair_neck_skin(image: np.ndarray) -> dict:
     Returns dict with 'face_mask', 'hair_mask', 'neck_mask' (uint8 0/255).
     Falls back to landmark-based heuristics if model unavailable.
     """
-    model = _get_bisenet()
-    if model is not None:
-        return _segment_with_bisenet(image, model)
+    result = _get_bisenet()
+    if result is not None:
+        model, device = result
+        return _segment_with_bisenet(image, model, device)
     return _segment_heuristic(image)
 
 
-def _segment_with_bisenet(image: np.ndarray, model) -> dict:
+def _segment_with_bisenet(image: np.ndarray, model, device) -> dict:
     try:
         import torch
         import torchvision.transforms as T
@@ -65,11 +74,11 @@ def _segment_with_bisenet(image: np.ndarray, model) -> dict:
             T.ToTensor(),
             T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
-        inp = transform(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).unsqueeze(0)
+        inp = transform(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).unsqueeze(0).to(device)
 
         with torch.no_grad():
             out = model(inp)["out"]
-        pred = out.argmax(1).squeeze().numpy()  # (512, 512)
+        pred = out.argmax(1).squeeze().cpu().numpy()  # back to CPU for numpy
         pred = cv2.resize(pred.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
 
         def cls_mask(classes):

@@ -2,7 +2,7 @@ import os
 import cv2
 import numpy as np
 
-from .detector import _get_insightface  # reuse shared buffalo_l instance
+from .detector import _get_insightface, _ORT_PROVIDERS  # reuse shared instance + providers
 
 _swapper_model = None
 _swapper_failed = False   # True only after a real load error (not "file not there yet")
@@ -24,7 +24,7 @@ def _load_swapper():
     try:
         import insightface
         _swapper_model = insightface.model_zoo.get_model(
-            model_path, providers=["CPUExecutionProvider"]
+            model_path, providers=_ORT_PROVIDERS
         )
         print("[swapper] inswapper_128 loaded OK")
         return _swapper_model

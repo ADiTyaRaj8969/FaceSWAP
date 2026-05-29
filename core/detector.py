@@ -1,6 +1,14 @@
 import os
 import cv2
 import numpy as np
+import onnxruntime as ort
+
+# Auto-select GPU if available, fall back to CPU
+_ORT_PROVIDERS = (
+    ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    if "CUDAExecutionProvider" in ort.get_available_providers()
+    else ["CPUExecutionProvider"]
+)
 
 _face_cascade = None
 _insightface_app = None
@@ -38,7 +46,7 @@ def _get_insightface():
         import insightface
         _insightface_app = insightface.app.FaceAnalysis(
             name="buffalo_l",
-            providers=["CPUExecutionProvider"]
+            providers=_ORT_PROVIDERS
         )
         _insightface_app.prepare(ctx_id=0, det_size=(640, 640))
         print("[detector] InsightFace buffalo_l loaded OK")
