@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { auth, googleProvider, signInWithPopup } from '../firebase';
@@ -51,6 +51,11 @@ export default function LandingPage() {
 
   const isSignedIn = !!user;
   const days       = isSignedIn ? daysLeft() : 0;
+
+  // Auto-redirect when already signed in (e.g. signed in via new tab, came back to iframe)
+  useEffect(() => {
+    if (!loading && isSignedIn) navigate('/app');
+  }, [loading, isSignedIn, navigate]);
 
   const doGoogleSignIn = async () => {
     // Inside HF Spaces iframe popups are always blocked — open direct URL in new tab
