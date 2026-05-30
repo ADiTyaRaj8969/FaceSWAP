@@ -93,10 +93,14 @@ def _enhance_input(img: np.ndarray) -> np.ndarray:
     """
     try:
         h, w = img.shape[:2]
-        if max(h, w) < 900:
+        # Only enhance genuinely low-res uploads. Already-decent photos are left
+        # alone so they don't get GFPGAN-restored on input AND output (stacking
+        # GFPGAN makes skin look plastic/unnatural).
+        if max(h, w) < 800:
             img = upscale_image(img, scale=2)        # bring small uploads up
             img = resize_keep_aspect(img, 1280)      # but cap the working size
-        return restore_faces(img)
+            img = restore_faces(img)                 # restore detail in the upscale
+        return img
     except Exception as e:
         print(f"[swap] input enhance skipped: {e}")
         return img
