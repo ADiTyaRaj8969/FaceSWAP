@@ -27,7 +27,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from PIL import Image
 
-from core.detector import detect_faces
+from core.detector import detect_faces, _get_insightface
 from core.swapper import swap_face_insightface
 from core.skin_tone import analyze_skin_tone
 from core.super_res import restore_faces, upscale_image
@@ -81,6 +81,25 @@ def _encode_image(img: np.ndarray, fmt: str = "JPEG", quality: int = 88) -> str:
 def _safe_detect(img):
     faces = detect_faces(img)
     return faces
+
+
+def _enhance_input(img: np.ndarray) -> np.ndarray:
+    """
+    Enhance an uploaded image before it enters the swap pipeline, so low-res
+    photos don't lose detail. Small images are upscaled (RealESRGAN/Lanczos) to a
+    workable size, then GFPGAN restores facial detail. Large images are just
+    face-restored. The result feeds detection + swap, and the final output is
+    enhanced again — detail is preserved at both ends.
+    """
+    try:
+        h, w = img.shape[:2]
+        if max(h, w) < 900:
+            img = upscale_image(img, scale=2)        # bring small uploads up
+            img = resize_keep_aspect(img, 1280)      # but cap the working size
+        return restore_faces(img)
+    except Exception as e:
+        print(f"[swap] input enhance skipped: {e}")
+        return img
 
 
 # -- routes --------------------------------------------------------------------
@@ -181,6 +200,11 @@ def api_swap():
         source = resize_keep_aspect(source, 1024)
         target = resize_keep_aspect(target, 1024)
 
+        # -- enhance inputs (upscale small + GFPGAN restore) so detail isn't
+        #    lost through the pipeline; the output is enhanced again at the end.
+        source = _enhance_input(source)
+        target = _enhance_input(target)
+
         # -- face detection ---------------------------------------------------
         faces_src = _safe_detect(source)
         faces_tgt = _safe_detect(target)
@@ -241,6 +265,26 @@ def api_swap():
 
         # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(swapped, target, None, None)
+
+        # Real alignment: how closely the swapped face's 5 landmarks sit on the
+        # target's (the swap keeps the target geometry, so a clean swap aligns
+        # tightly). Normalised by inter-ocular distance => resolution-independent.
+        try:
+            _ifa = _get_insightface()
+            _area = lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+            sw = _ifa.get(swapped) if _ifa else []
+            tg = _ifa.get(target) if _ifa else []
+            if sw and tg:
+                sk = np.asarray(max(sw, key=_area).kps, dtype=np.float32)
+                tk = np.asarray(max(tg, key=_area).kps, dtype=np.float32)
+                err = float(np.linalg.norm(sk - tk, axis=1).mean())
+                iod = float(np.linalg.norm(tk[0] - tk[1])) or 1.0
+                # Deviation as a fraction of inter-ocular distance. A clean swap
+                # lands within a few % (re-detection + GFPGAN shift the features
+                # slightly), so 0% => 100 and 15% => 0 gives an honest ~75-95.
+                quality["alignment"] = round(max(0.0, 100.0 * (1 - (err / iod) / 0.15)), 1)
+        except Exception as e:
+            print(f"[swap] alignment metric skipped: {e}")
 
         # -- 4K upscale for download (RealESRGAN x4, Lanczos fallback) --------
         hi_res = upscale_image(swapped, scale=4)
