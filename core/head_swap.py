@@ -240,14 +240,31 @@ def match_skin_to_source(
     return cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
 
+def _similarity_from_2pts(src, dst) -> np.ndarray:
+    """2x3 similarity (rotation+uniform scale+translation) mapping src->dst eyes."""
+    src = np.asarray(src, np.float32)
+    dst = np.asarray(dst, np.float32)
+    sv = src[1] - src[0]
+    dv = dst[1] - dst[0]
+    scale = float(np.linalg.norm(dv)) / (float(np.linalg.norm(sv)) + 1e-6)
+    ang = np.arctan2(dv[1], dv[0]) - np.arctan2(sv[1], sv[0])
+    c, s = np.cos(ang) * scale, np.sin(ang) * scale
+    R = np.array([[c, -s], [s, c]], np.float32)
+    t = dst.mean(0) - R @ src.mean(0)
+    return np.array([[R[0, 0], R[0, 1], t[0]],
+                     [R[1, 0], R[1, 1], t[1]]], np.float32)
+
+
 def transfer_glasses(swapped: np.ndarray, source: np.ndarray,
-                     feather: float = 0.012) -> np.ndarray:
+                     feather: float = 0.008) -> np.ndarray:
     """
-    Carry the SOURCE's spectacles onto the swapped face. InsightFace swaps only
-    the face identity, so a source's glasses vanish — this segments them with
-    BiSeNet (class 6 = eye_g), warps them onto the swapped face via a 5-point
-    similarity transform, and composites them on top. No-op when the source
-    wears no glasses (empty mask).
+    Carry the SOURCE's spectacles onto the swapped face (InsightFace swaps the
+    face but not accessories). Segments them with BiSeNet (class 6 = eye_g) and:
+      - aligns by the two EYE keypoints so the glasses sit exactly on the eyes;
+      - composites frames solid but LENSES semi-transparent (opacity follows how
+        dark/frame-like each pixel is), so the target's own eyes show through the
+        lenses instead of the source's — far less "pasted".
+    No-op when the source wears no glasses.
     """
     app = _get_insightface()
     if app is None:
@@ -266,25 +283,26 @@ def transfer_glasses(swapped: np.ndarray, source: np.ndarray,
         if gmask.max() <= 0:
             return swapped  # source has no glasses
 
-        M, _ = cv2.estimateAffinePartial2D(
-            np.asarray(sf.kps, np.float32), np.asarray(tf.kps, np.float32),
-            method=cv2.LMEDS)
-        if M is None:
-            return swapped
+        # Lock the glasses to the eye line (kps[0]=left eye, kps[1]=right eye).
+        M = _similarity_from_2pts(sf.kps[:2], tf.kps[:2])
 
         h, w = swapped.shape[:2]
         warped_src = cv2.warpAffine(source, M, (w, h), flags=cv2.INTER_LINEAR)
         warped_mask = cv2.warpAffine(gmask, M, (w, h), flags=cv2.INTER_LINEAR)
-
-        # Solidify + slightly dilate (catch thin frames), then feather the edge.
         warped_mask = (warped_mask > 0.4).astype(np.float32)
-        warped_mask = cv2.dilate(warped_mask, np.ones((3, 3), np.uint8))
+
+        # Per-pixel opacity: dark/coloured frame pixels ~opaque, bright lens
+        # pixels ~half — so the underlying (target) eyes read through the tint.
+        gray = cv2.cvtColor(warped_src, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255.0
+        opacity = 0.45 + 0.55 * np.clip(1.0 - gray, 0.0, 1.0)
+
         k = max(3, int(min(h, w) * feather) | 1)
         warped_mask = cv2.GaussianBlur(warped_mask, (k, k), 0)
-        alpha = np.stack([np.clip(warped_mask, 0.0, 1.0)] * 3, axis=-1)
+        alpha = np.clip(warped_mask * opacity, 0.0, 1.0)
+        alpha3 = np.stack([alpha] * 3, axis=-1)
 
-        out = (warped_src.astype(np.float32) * alpha +
-               swapped.astype(np.float32) * (1.0 - alpha))
+        out = (warped_src.astype(np.float32) * alpha3 +
+               swapped.astype(np.float32) * (1.0 - alpha3))
         return np.clip(out, 0, 255).astype(np.uint8)
     except Exception as e:
         print(f"[head_swap] glasses transfer error: {e}")
