@@ -31,7 +31,7 @@ from core.detector import detect_faces, _get_insightface
 from core.swapper import swap_face_insightface
 from core.skin_tone import analyze_skin_tone
 from core.super_res import restore_faces, upscale_image
-from core.head_swap import swap_hair, match_skin_to_source
+from core.head_swap import swap_hair, match_skin_to_source, transfer_glasses
 from core.hair_transfer import transfer_hair
 from core.quality_checker import compute_quality_score
 from utils.image_io import save_image, resize_keep_aspect
@@ -257,11 +257,21 @@ def api_swap():
             except Exception as e:
                 print(f"[swap] hair transfer error: {e}")
             if hf_portrait is not None:
-                # HairFast returns an aligned portrait; warp its hair onto the scene.
-                swapped = swap_hair(swapped, hf_portrait, swapped, include_face=False)
+                # HairFast returns a TIGHT FFHQ portrait (face fills the frame),
+                # which RetinaFace can't detect — pad it so the paste-back can
+                # find the face and warp the new hair onto the scene.
+                pad = int(max(hf_portrait.shape[:2]) * 0.4)
+                hf_padded = cv2.copyMakeBorder(hf_portrait, pad, pad, pad, pad,
+                                               cv2.BORDER_CONSTANT, value=(127, 127, 127))
+                swapped = swap_hair(swapped, hf_padded, swapped, include_face=False)
             else:
                 # Space unavailable → lightweight source-hair composite.
                 swapped = swap_hair(swapped, source, target, include_face=full_head)
+
+        # 5. Carry the source's spectacles onto the swapped face (InsightFace
+        #    doesn't transfer accessories). No-op when the source wears none.
+        if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
+            swapped = transfer_glasses(swapped, source)
 
         # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(swapped, target, None, None)

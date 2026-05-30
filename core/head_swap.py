@@ -31,6 +31,7 @@ _HEAD_CLASSES = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 17}
 # Face skin + ears + neck (NOT eyes/glasses/hair/cloth) — the visible skin whose
 # tone must stay consistent so the swap doesn't look pasted at the jaw.
 _SKIN_NECK_CLASSES = {1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+_GLASSES_CLASSES = {6}                         # eye_g (spectacles)
 
 _parser = None
 _parser_failed = False
@@ -237,3 +238,54 @@ def match_skin_to_source(
     for c in range(3):
         lab[:, :, c] += delta[c] * mask
     return cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
+
+
+def transfer_glasses(swapped: np.ndarray, source: np.ndarray,
+                     feather: float = 0.012) -> np.ndarray:
+    """
+    Carry the SOURCE's spectacles onto the swapped face. InsightFace swaps only
+    the face identity, so a source's glasses vanish — this segments them with
+    BiSeNet (class 6 = eye_g), warps them onto the swapped face via a 5-point
+    similarity transform, and composites them on top. No-op when the source
+    wears no glasses (empty mask).
+    """
+    app = _get_insightface()
+    if app is None:
+        return swapped
+    try:
+        src_faces = app.get(source)
+        tgt_faces = app.get(swapped)
+        if not src_faces or not tgt_faces:
+            return swapped
+        area = lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+        sf = max(src_faces, key=area)
+        tf = max(tgt_faces, key=area)
+
+        gmask = _parse_region_mask(source, sf.bbox, _GLASSES_CLASSES,
+                                   up=0.5, down=0.5, side=0.5)
+        if gmask.max() <= 0:
+            return swapped  # source has no glasses
+
+        M, _ = cv2.estimateAffinePartial2D(
+            np.asarray(sf.kps, np.float32), np.asarray(tf.kps, np.float32),
+            method=cv2.LMEDS)
+        if M is None:
+            return swapped
+
+        h, w = swapped.shape[:2]
+        warped_src = cv2.warpAffine(source, M, (w, h), flags=cv2.INTER_LINEAR)
+        warped_mask = cv2.warpAffine(gmask, M, (w, h), flags=cv2.INTER_LINEAR)
+
+        # Solidify + slightly dilate (catch thin frames), then feather the edge.
+        warped_mask = (warped_mask > 0.4).astype(np.float32)
+        warped_mask = cv2.dilate(warped_mask, np.ones((3, 3), np.uint8))
+        k = max(3, int(min(h, w) * feather) | 1)
+        warped_mask = cv2.GaussianBlur(warped_mask, (k, k), 0)
+        alpha = np.stack([np.clip(warped_mask, 0.0, 1.0)] * 3, axis=-1)
+
+        out = (warped_src.astype(np.float32) * alpha +
+               swapped.astype(np.float32) * (1.0 - alpha))
+        return np.clip(out, 0, 255).astype(np.uint8)
+    except Exception as e:
+        print(f"[head_swap] glasses transfer error: {e}")
+        return swapped
