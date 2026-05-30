@@ -1,13 +1,14 @@
 """
-High-quality hair transfer via the HairFastGAN Gradio Space.
+High-quality hair transfer with HairFastGAN (StyleGAN-based).
 
-InsightFace swaps only the face; this calls a hosted HairFastGAN Space (StyleGAN-
-based) to transfer a reference hairstyle, which runs on GPU server-side. Set the
-HAIRFAST_SPACE env var to your own duplicated (HF Pro GPU) Space for speed and
-privacy; it defaults to the public AIRI-Institute Space.
+InsightFace swaps only the face; this transfers a reference hairstyle. It prefers
+a LOCAL GPU install (vendored under external/HairFastGAN, run via its MSVC-env
+launcher) and falls back to the hosted HairFastGAN Gradio Space. Set
+HAIRFAST_LOCAL=0 to force the Space, or HAIRFAST_SPACE to your own duplicated
+(HF Pro GPU) Space; HF_TOKEN lifts the public Space's ZeroGPU quota.
 
-The Space returns an FFHQ-aligned 1024 portrait (face + new hair, no background),
-so callers paste the head back into the original scene themselves.
+Either backend returns an FFHQ-aligned 1024 portrait (face + new hair, no
+background), so callers paste the head back into the original scene themselves.
 """
 import os
 import tempfile
@@ -28,8 +29,89 @@ if not _cf or not os.path.exists(_cf):
 
 HAIRFAST_SPACE = os.environ.get("HAIRFAST_SPACE", "AIRI-Institute/HairFastGAN")
 
+# Local GPU HairFastGAN (vendored under external/HairFastGAN). When present with
+# a CUDA GPU we run it via the MSVC-env launcher instead of the hosted Space —
+# faster, private, no quota. Set HAIRFAST_LOCAL=0 to force the Space.
+_HF_LOCAL_DIR = os.path.join("external", "HairFastGAN")
+_HF_LOCAL_BAT = os.path.join(_HF_LOCAL_DIR, "run_hairfast.bat")
+
 _client = None
 _client_failed = False
+_local_ok = None  # cached availability check
+
+
+def _local_available() -> bool:
+    global _local_ok
+    if _local_ok is not None:
+        return _local_ok
+    _local_ok = False
+    if os.environ.get("HAIRFAST_LOCAL", "1") not in ("1", "true", "on"):
+        return False
+    # Need the vendored repo with weights linked in (run scripts/setup_hairfast.py).
+    if not os.path.isdir(os.path.join(_HF_LOCAL_DIR, "pretrained_models")):
+        return False
+    # Self-heal: drop the committed runner scripts into the repo if missing.
+    if not os.path.isfile(_HF_LOCAL_BAT):
+        src = os.path.join("scripts", "hairfast")
+        try:
+            import shutil
+            for f in ("run_hairfast.py", "run_hairfast.bat"):
+                s = os.path.join(src, f)
+                if os.path.isfile(s):
+                    shutil.copy(s, os.path.join(_HF_LOCAL_DIR, f))
+        except Exception:
+            pass
+    if not os.path.isfile(_HF_LOCAL_BAT):
+        return False
+    try:
+        import torch
+        _local_ok = torch.cuda.is_available()
+    except Exception:
+        _local_ok = False
+    if _local_ok:
+        print("[hair_transfer] local GPU HairFastGAN available")
+    return _local_ok
+
+
+def _transfer_hair_local(face_bgr, shape_bgr, color_bgr):
+    """Run the vendored HairFastGAN on the local GPU via its MSVC-env launcher."""
+    import subprocess
+    work = tempfile.mkdtemp(prefix="hairfast_")
+    fp = os.path.join(work, "face.png")
+    sp = os.path.join(work, "shape.png")
+    cp = os.path.join(work, "color.png")
+    op = os.path.join(work, "out.png")
+    cv2.imwrite(fp, face_bgr)
+    cv2.imwrite(sp, shape_bgr)
+    cv2.imwrite(cp, color_bgr)
+    try:
+        # The .bat sets the VS build env + CUDA arch, cds into the repo, and runs
+        # run_hairfast.py with absolute paths. ~18s warm; first ever call is slow
+        # (one-time op compile + model downloads), hence the generous timeout.
+        r = subprocess.run(
+            ["cmd", "/c", os.path.abspath(_HF_LOCAL_BAT), fp, sp, cp, op],
+            capture_output=True, text=True, timeout=900,
+        )
+        if os.path.exists(op):
+            return cv2.imread(op)
+        print(f"[hair_transfer] local run produced no output:\n{r.stdout[-500:]}\n{r.stderr[-500:]}")
+        return None
+    except subprocess.TimeoutExpired:
+        print("[hair_transfer] local run timed out")
+        return None
+    except Exception as e:
+        print(f"[hair_transfer] local run error: {e}")
+        return None
+    finally:
+        for p in (fp, sp, cp, op):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+        try:
+            os.rmdir(work)
+        except Exception:
+            pass
 
 
 def _get_client():
@@ -72,12 +154,22 @@ def transfer_hair(face_bgr: np.ndarray,
     face_bgr : whose face/identity to keep (e.g. the InsightFace swap result)
     shape_bgr: hairstyle-shape reference (e.g. the source person)
     color_bgr: hair-colour reference (defaults to shape)
+
+    Uses the local GPU HairFastGAN when available; otherwise the hosted Space.
     """
+    if color_bgr is None:
+        color_bgr = shape_bgr
+
+    # Prefer the local GPU model (faster, private, no quota).
+    if _local_available():
+        res = _transfer_hair_local(face_bgr, shape_bgr, color_bgr)
+        if res is not None:
+            return res
+        print("[hair_transfer] local run failed — falling back to Space")
+
     client = _get_client()
     if client is None:
         return None
-    if color_bgr is None:
-        color_bgr = shape_bgr
 
     from gradio_client import handle_file
     paths = []

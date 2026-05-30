@@ -51,6 +51,26 @@ python web_app.py
 
 Open http://localhost:5000
 
+### Hair Transfer (HairFastGAN) — optional
+
+The "Swap hair too" toggle transfers the source's hairstyle (InsightFace only
+swaps the face). Two backends, auto-selected by `core/hair_transfer.py`:
+
+- **Local GPU (best)** — vendored HairFastGAN on your NVIDIA GPU. Needs Visual
+  Studio Build Tools (C++), CUDA, and git-lfs. Set it up once:
+  ```bash
+  python scripts/setup_hairfast.py        # clones repo + ~7GB weights, patches ops
+  pip install git+https://github.com/openai/CLIP.git face_alignment lpips kornia
+  ```
+  First swap is slow (one-time op compile + CLIP/vgg download); then ~18s each.
+- **Hosted Space (HF / no local GPU)** — falls back to the HairFastGAN Gradio
+  Space automatically. Set `HF_TOKEN` (lifts the public ZeroGPU quota) and
+  optionally `HAIRFAST_SPACE=<you>/HairFastGAN` for your own GPU Space. Force
+  this path with `HAIRFAST_LOCAL=0`.
+
+`external/` (the vendored repo + weights) is gitignored; `scripts/setup_hairfast.py`
+recreates it on any machine.
+
 ### Firebase Setup
 1. Go to https://console.firebase.google.com
 2. Create a new project
