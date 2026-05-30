@@ -49,3 +49,6 @@ desktop.ini
 # Logs
 *.log
 npm-debug.log*
+
+# Vendored HairFastGAN repo + multi-GB weights (local GPU hair transfer)
+external/
