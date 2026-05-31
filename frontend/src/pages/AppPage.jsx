@@ -128,6 +128,7 @@ export default function AppPage() {
   const [hair,  setHair]  = useState(80);
   const [neck,  setNeck]  = useState(75);
   const [swapHairOpt, setSwapHairOpt] = useState(false);
+  const [keepGlasses, setKeepGlasses] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
   const videoRef    = useRef(null);
@@ -238,6 +239,7 @@ export default function AppPage() {
     fd.append('hair_preserve',  hair);
     fd.append('neck_blend',     neck);
     fd.append('swap_hair',      swapHairOpt ? '1' : '0');
+    fd.append('keep_glasses',   keepGlasses ? '1' : '0');
 
     try {
       const resp = await fetch('/api/swap', {
@@ -519,7 +521,7 @@ export default function AppPage() {
                     </div>
                   ))}
                 </div>
-                <div className="px-4 sm:px-5 pb-4 sm:pb-5">
+                <div className="px-4 sm:px-5 pb-4 sm:pb-5 flex flex-col gap-3">
                   <label className="flex items-center gap-3 cursor-pointer select-none">
                     <input type="checkbox" checked={swapHairOpt}
                       onChange={e => setSwapHairOpt(e.target.checked)}
@@ -528,6 +530,17 @@ export default function AppPage() {
                       Swap hair too <span className="text-lime">(experimental)</span>
                       <span className="block text-[10px] text-sage/60">
                         Transplants the source's hair. Works best with a clear, front-facing source; may look artificial.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer select-none">
+                    <input type="checkbox" checked={keepGlasses}
+                      onChange={e => setKeepGlasses(e.target.checked)}
+                      className="w-4 h-4 accent-lime cursor-pointer" />
+                    <span className="text-xs text-sage font-medium">
+                      Keep source glasses <span className="text-lime">(experimental)</span>
+                      <span className="block text-[10px] text-sage/60">
+                        Carries the source's spectacles onto the swap. Best with a front-facing source; may look slightly pasted.
                       </span>
                     </span>
                   </label>

@@ -272,9 +272,10 @@ def api_swap():
                 # Space unavailable → lightweight source-hair composite.
                 swapped = swap_hair(swapped, source, target, include_face=full_head)
 
-        # 5. Carry the source's spectacles onto the swapped face (InsightFace
-        #    doesn't transfer accessories). No-op when the source wears none.
-        if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
+        # 5. Optional: carry the source's spectacles onto the swapped face
+        #    (InsightFace doesn't transfer accessories). Opt-in — default OFF so
+        #    the swap stays clean; a 2D glasses transfer can look slightly pasted.
+        if request.form.get("keep_glasses", "0") in ("1", "true", "on"):
             swapped = transfer_glasses(swapped, source)
 
         # -- quality metrics --------------------------------------------------
