@@ -30,7 +30,8 @@ from core.detector import detect_faces, _get_insightface
 from core.swapper import swap_face_insightface
 from core.skin_tone import analyze_skin_tone
 from core.super_res import restore_faces, upscale_image
-from core.head_swap import swap_hair, match_skin_to_source, transfer_glasses
+from core.head_swap import (swap_hair, match_skin_to_source, transfer_glasses,
+                            full_head_swap)
 from core.hair_transfer import transfer_hair
 from core.quality_checker import compute_quality_score
 from utils.image_io import resize_keep_aspect
@@ -223,57 +224,53 @@ def api_swap():
             (src_tone["b"] - tgt_tone["b"]) ** 2
         ) ** 0.5
 
-        # 1. Core face swap (InsightFace inswapper_128). paste_back already
-        #    blends the face boundary, and the source skin tone is carried by
-        #    the model — so we do NOT touch the hair/neck or re-transfer colour
-        #    (that smeared the hairline and shifted tone in earlier versions).
-        swapped = swap_face_insightface(source, target)
+        # 1. HEAD SWAP — transplant the SOURCE's whole head (face SHAPE + skin +
+        #    hair + glasses) onto the target's body, so the source's face shape is
+        #    preserved (InsightFace alone would impose the target's shape). Only
+        #    the head region is touched, so the background stays intact. Falls
+        #    back to the InsightFace face swap if the transplant can't run.
+        swapped = None
+        if request.form.get("head_swap", "1") in ("1", "true", "on"):
+            try:
+                swapped = full_head_swap(source, target)
+            except Exception as e:
+                print(f"[swap] head swap error: {e}")
+        head_done = swapped is not None
+        if not head_done:
+            swapped = swap_face_insightface(source, target)
 
-        # 2. GFPGAN face restoration — recreates the detail lost in the 128px
-        #    swap. THIS is what removes the blur; it runs before the preview is
-        #    encoded so the on-screen result is sharp, not just the download.
+        # 2. GFPGAN face restoration — natural facial detail, removes any softness
+        #    from the warp/swap. Runs before the preview is encoded.
         swapped = restore_faces(swapped)
 
-        # 3. Give the swapped face the SOURCE's complexion (the user's own skin
-        #    tone). Both the face AND neck are shifted together toward the source
-        #    tone, so they stay one consistent colour with no jaw seam; the
-        #    neck->collar transition is hidden by clothing.
+        # 3. SOURCE complexion across face+neck (one consistent tone, no jaw
+        #    seam; the head swap already carries the source skin, this also pulls
+        #    the target's visible neck to match).
         swapped = match_skin_to_source(
             swapped, source, faces_src[0], faces_tgt[0], strength=0.75
         )
 
-        # 4. Optional: transplant the source's hair (opt-in). InsightFace only
-        #    swaps the face, so this is what makes the hair change too.
-        #    Preferred: HairFastGAN (StyleGAN, GPU server-side) for a high-quality
-        #    hairstyle, pasted back into the scene. Fallback: the lightweight
-        #    local warp-composite when the Space is unavailable.
-        # Hair transfer runs by default now (hidden from the UI). Set swap_hair=0
-        # to disable per-request.
-        swap_hair_flag = request.form.get("swap_hair", "1") in ("1", "true", "on")
-        full_head      = request.form.get("full_head", "0") in ("1", "true", "on")
-        if swap_hair_flag or full_head:
-            hf_portrait = None
-            try:
-                hf_portrait = transfer_hair(face_bgr=swapped, shape_bgr=source,
-                                            color_bgr=source)
-            except Exception as e:
-                print(f"[swap] hair transfer error: {e}")
-            if hf_portrait is not None:
-                # HairFast returns a TIGHT FFHQ portrait (face fills the frame),
-                # which RetinaFace can't detect — pad it so the paste-back can
-                # find the face and warp the new hair onto the scene.
-                pad = int(max(hf_portrait.shape[:2]) * 0.4)
-                hf_padded = cv2.copyMakeBorder(hf_portrait, pad, pad, pad, pad,
-                                               cv2.BORDER_CONSTANT, value=(127, 127, 127))
-                swapped = swap_hair(swapped, hf_padded, swapped, include_face=False)
-            else:
-                # Space unavailable → lightweight source-hair composite.
-                swapped = swap_hair(swapped, source, target, include_face=full_head)
-
-        # 5. Carry the source's spectacles onto the swapped face by default
-        #    (no-op if the source wears none). Set keep_glasses=0 to disable.
-        if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
-            swapped = transfer_glasses(swapped, source)
+        # 4. If we only did a FACE swap (head transplant unavailable), add the
+        #    source's hair + glasses separately — the head swap already has both.
+        if not head_done:
+            swap_hair_flag = request.form.get("swap_hair", "1") in ("1", "true", "on")
+            full_head      = request.form.get("full_head", "0") in ("1", "true", "on")
+            if swap_hair_flag or full_head:
+                hf_portrait = None
+                try:
+                    hf_portrait = transfer_hair(face_bgr=swapped, shape_bgr=source,
+                                                color_bgr=source)
+                except Exception as e:
+                    print(f"[swap] hair transfer error: {e}")
+                if hf_portrait is not None:
+                    pad = int(max(hf_portrait.shape[:2]) * 0.4)
+                    hf_padded = cv2.copyMakeBorder(hf_portrait, pad, pad, pad, pad,
+                                                   cv2.BORDER_CONSTANT, value=(127, 127, 127))
+                    swapped = swap_hair(swapped, hf_padded, swapped, include_face=False)
+                else:
+                    swapped = swap_hair(swapped, source, target, include_face=full_head)
+            if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
+                swapped = transfer_glasses(swapped, source)
 
         # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(swapped, target, None, None)

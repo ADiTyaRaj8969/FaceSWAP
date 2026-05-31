@@ -307,3 +307,95 @@ def transfer_glasses(swapped: np.ndarray, source: np.ndarray,
     except Exception as e:
         print(f"[head_swap] glasses transfer error: {e}")
         return swapped
+
+
+def _match_lighting(src_region, dst, mask):
+    """Shift src_region's mean LAB toward dst inside mask (match scene exposure,
+    keep most of the source's own colour). Returns a lit-corrected src_region."""
+    m = mask > 0.5
+    if m.sum() < 50:
+        return src_region
+    s = cv2.cvtColor(src_region, cv2.COLOR_BGR2LAB).astype(np.float32)
+    d = cv2.cvtColor(dst, cv2.COLOR_BGR2LAB).astype(np.float32)
+    out = s.copy()
+    for c in range(3):
+        sm, dm = s[:, :, c][m].mean(), d[:, :, c][m].mean()
+        # 60% toward the scene's exposure on L, lighter on colour channels
+        w = 0.6 if c == 0 else 0.35
+        out[:, :, c] = s[:, :, c] + (dm - sm) * w
+    return cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
+
+
+def full_head_swap(source: np.ndarray, target: np.ndarray,
+                   feather: float = 0.025):
+    """
+    Transplant the SOURCE's whole head — face SHAPE + skin + hair (+ glasses) —
+    onto the target's body/scene. Unlike InsightFace (which keeps the target's
+    face shape), this uses the source's actual head, so a round/slim source stays
+    round/slim. A similarity transform (eyes+nose+mouth) preserves the source's
+    proportions; only the head region is touched, so the BACKGROUND is untouched.
+    Best when source and target face roughly the same way. Returns the composited
+    image, or None if it can't (caller falls back to the face swap).
+    """
+    app = _get_insightface()
+    if app is None:
+        return None
+    try:
+        src_faces = app.get(source)
+        tgt_faces = app.get(target)
+        if not src_faces or not tgt_faces:
+            return None
+        area = lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+        sf = max(src_faces, key=area)
+        tf = max(tgt_faces, key=area)
+
+        # Similarity (no shear) keeps the source face SHAPE; aligns it to the
+        # target's eyes/nose/mouth position, scale and rotation.
+        M, _ = cv2.estimateAffinePartial2D(
+            np.asarray(sf.kps, np.float32), np.asarray(tf.kps, np.float32),
+            method=cv2.LMEDS)
+        if M is None:
+            return None
+
+        h, w = target.shape[:2]
+        head = _parse_region_mask(source, sf.bbox, _HEAD_CLASSES,
+                                  up=1.0, down=0.45, side=0.6)
+        if head.max() <= 0:
+            return None
+        # Keep the largest connected region (drop stray parse specks).
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(
+            (head > 0.5).astype(np.uint8), connectivity=8)
+        if n > 1:
+            head = (labels == 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))).astype(np.float32)
+
+        warped_src = cv2.warpAffine(source, M, (w, h), flags=cv2.INTER_LINEAR)
+        warped_mask = cv2.warpAffine(head, M, (w, h), flags=cv2.INTER_LINEAR)
+
+        # Confine to a plausible head box around the target face (no stray bits
+        # in the background); generous down/side for long hair.
+        tx1, ty1, tx2, ty2 = [int(v) for v in tf.bbox]
+        tbw, tbh = tx2 - tx1, ty2 - ty1
+        region = np.zeros((h, w), np.float32)
+        rx1 = max(0, tx1 - int(tbw * 1.1)); ry1 = max(0, ty1 - int(tbh * 1.6))
+        rx2 = min(w, tx2 + int(tbw * 1.1)); ry2 = min(h, ty2 + int(tbh * 1.3))
+        region[ry1:ry2, rx1:rx2] = 1.0
+        warped_mask *= region
+
+        warped_mask = (warped_mask > 0.5).astype(np.float32)
+        er = max(2, int(min(h, w) * 0.012))
+        warped_mask = cv2.erode(warped_mask, np.ones((er, er), np.uint8))
+
+        # Match the transplanted head's exposure to the target scene so it doesn't
+        # look like a cut-out from a differently-lit photo.
+        warped_src = _match_lighting(warped_src, target, warped_mask)
+
+        k = max(3, int(min(h, w) * feather) | 1)
+        warped_mask = cv2.GaussianBlur(warped_mask, (k, k), 0)
+        alpha = np.stack([np.clip(warped_mask, 0.0, 1.0)] * 3, axis=-1)
+
+        out = (warped_src.astype(np.float32) * alpha +
+               target.astype(np.float32) * (1.0 - alpha))
+        return np.clip(out, 0, 255).astype(np.uint8)
+    except Exception as e:
+        print(f"[head_swap] full head swap error: {e}")
+        return None
