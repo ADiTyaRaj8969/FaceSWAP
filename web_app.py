@@ -10,7 +10,6 @@ os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 import io
 import base64
 import traceback
-import uuid
 import mimetypes
 
 # python:3.10-slim has an incomplete MIME database — JS/CSS would be served as
@@ -23,7 +22,7 @@ mimetypes.add_type("application/json", ".json")
 import cv2
 import cv2.data
 import numpy as np
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from PIL import Image
 
@@ -34,7 +33,7 @@ from core.super_res import restore_faces, upscale_image
 from core.head_swap import swap_hair, match_skin_to_source, transfer_glasses
 from core.hair_transfer import transfer_hair
 from core.quality_checker import compute_quality_score
-from utils.image_io import save_image, resize_keep_aspect
+from utils.image_io import resize_keep_aspect
 
 REACT_BUILD = os.path.join("static", "react")
 
@@ -43,10 +42,8 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 _debug_mode = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
 CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"] if _debug_mode else "*")
 
-UPLOAD_DIR = "uploads/temp"
-OUTPUT_DIR = "outputs/results"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# Nothing is written to disk — uploads are decoded in memory and the result is
+# returned inline as a data-URI for client-side download.
 
 
 # -- helpers -------------------------------------------------------------------
@@ -318,14 +315,9 @@ def api_swap():
         # -- 4K upscale for download (RealESRGAN x4, Lanczos fallback) --------
         hi_res = upscale_image(swapped, scale=4)
 
-        # -- save 4K PNG output (kept for the /api/download fallback) ----------
-        out_name = f"swap_{uuid.uuid4().hex[:8]}.png"
-        out_path = os.path.join(OUTPUT_DIR, out_name)
-        save_image(hi_res, out_path)
-
-        # The 4K image is also returned inline as a data-URI so "Download" works
-        # client-side everywhere — including the HuggingFace Space, whose sandboxed
-        # iframe/proxy breaks the /api/download round-trip that works on localhost.
+        # The 4K result is returned inline as a base64 data-URI so the user can
+        # download it client-side (works on the HF Space too). We do NOT store it
+        # server-side — nothing is written to disk (privacy + no disk growth).
         download_uri = _encode_image(hi_res, fmt="JPEG", quality=95)
 
         return jsonify({
@@ -336,22 +328,11 @@ def api_swap():
             "delta_e": round(delta_e, 2),
             "src_tone": src_tone,
             "tgt_tone": tgt_tone,
-            "output_file": out_name,
         })
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/api/download/<filename>")
-def api_download(filename):
-    """Download a previously generated swap result."""
-    path = os.path.join(OUTPUT_DIR, filename)
-    if not os.path.exists(path):
-        return "File not found", 404
-    return send_file(path, mimetype="image/png", as_attachment=True,
-                     download_name="face_swap_result.png")
 
 
 def _prewarm_models():
