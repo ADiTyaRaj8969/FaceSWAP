@@ -24,7 +24,7 @@ import cv2.data
 import numpy as np
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-from PIL import Image
+from PIL import Image, ImageOps
 
 from core.detector import detect_faces, _get_insightface
 from core.swapper import swap_face_insightface
@@ -50,19 +50,27 @@ CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"] if _debug_m
 # -- helpers -------------------------------------------------------------------
 
 def _decode_image(data_or_file) -> np.ndarray | None:
-    """Accept either a Flask FileStorage or a base64 data-URI string."""
+    """
+    Accept a Flask FileStorage or a base64 data-URI string and return a BGR image.
+    Honours EXIF orientation so phone photos (stored rotated with an orientation
+    tag) aren't processed sideways — cv2.imdecode ignores EXIF, PIL applies it.
+    """
     if isinstance(data_or_file, str):
         # base64 data URI: "data:image/jpeg;base64,<data>"
         if "," in data_or_file:
             data_or_file = data_or_file.split(",", 1)[1]
         raw = base64.b64decode(data_or_file)
-        arr = np.frombuffer(raw, np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
     else:
         raw = data_or_file.read()
+
+    try:
+        pil = Image.open(io.BytesIO(raw))
+        pil = ImageOps.exif_transpose(pil)        # auto-rotate per EXIF orientation
+        return cv2.cvtColor(np.array(pil.convert("RGB")), cv2.COLOR_RGB2BGR)
+    except Exception:
+        # Fallback: raw decode (no EXIF) if PIL can't read it.
         arr = np.frombuffer(raw, np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    return img
+        return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
 def _encode_image(img: np.ndarray, fmt: str = "JPEG", quality: int = 88) -> str:
