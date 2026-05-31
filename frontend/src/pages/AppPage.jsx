@@ -172,8 +172,7 @@ export default function AppPage() {
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, facingMode: 'user' } });
       setTgtStream(s); setTgtCamActive(true);
-      if (tgtVideoRef.current) tgtVideoRef.current.srcObject = s;
-    } catch { setToast('Camera access denied. Use Upload instead.'); }
+    } catch (e) { setToast(_camError(e)); }
   };
 
   const captureTgt = async () => {
@@ -191,12 +190,38 @@ export default function AppPage() {
 
   const stopTgtCamera = () => { tgtStream?.getTracks().forEach(t => t.stop()); setTgtStream(null); setTgtCamActive(false); };
 
+  // Attach the live stream once the <video> actually mounts (camActive flips it
+  // on). Setting srcObject inside startCamera raced the mount and showed no feed.
+  useEffect(() => {
+    if (camActive && stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play?.().catch(() => {});
+    }
+  }, [camActive, stream]);
+
+  useEffect(() => {
+    if (tgtCamActive && tgtStream && tgtVideoRef.current) {
+      tgtVideoRef.current.srcObject = tgtStream;
+      tgtVideoRef.current.play?.().catch(() => {});
+    }
+  }, [tgtCamActive, tgtStream]);
+
+  const _camError = (e) => {
+    if (!navigator.mediaDevices?.getUserMedia)
+      return 'Camera not available here (needs HTTPS or localhost). Use Upload.';
+    switch (e?.name) {
+      case 'NotAllowedError':  return 'Camera permission blocked — allow it in the address-bar icon, then retry. Or use Upload.';
+      case 'NotFoundError':    return 'No camera found — use Upload instead.';
+      case 'NotReadableError': return 'Camera is busy in another app — close it and retry.';
+      default:                 return `Camera error (${e?.name || 'unknown'}) — use Upload instead.`;
+    }
+  };
+
   const startCamera = async () => {
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, facingMode: 'user' } });
-      setStream(s); setCamActive(true);
-      if (videoRef.current) videoRef.current.srcObject = s;
-    } catch { setToast('Camera access denied. Use Upload instead.'); }
+      setStream(s); setCamActive(true);   // <video> mounts on camActive; effect attaches the stream
+    } catch (e) { setToast(_camError(e)); }
   };
 
   const capture = async () => {
