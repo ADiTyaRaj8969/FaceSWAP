@@ -273,19 +273,21 @@ export default function AppPage() {
   };
 
   return (
-    <div className="min-h-screen bg-bg font-sans text-navy">
+    <div className="bg-bg font-sans text-navy">
+      
+      {/* Main Content Area (Fills at least 1 screen height to push footer down) */}
+      <div className="min-h-[100dvh] relative flex flex-col">
+        {/* Floating Home Button (No Navbar) */}
+        <button onClick={() => navigate('/')}
+          className="absolute top-4 left-4 sm:top-6 sm:left-6 z-50 flex items-center gap-2 text-xs sm:text-sm text-navy border border-border/60 bg-white/90 backdrop-blur-md rounded-lg px-3 sm:px-4 py-1.5 sm:py-2 hover:border-teal/50 hover:bg-white transition-all duration-200 whitespace-nowrap font-bold shadow-sm hover:shadow">
+          <svg className="w-4 h-4 shrink-0 text-teal" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          Home
+        </button>
 
-      {/* Floating Home Button (No Navbar) */}
-      <button onClick={() => navigate('/')}
-        className="absolute top-4 left-4 sm:top-6 sm:left-6 z-50 flex items-center gap-2 text-xs sm:text-sm text-navy border border-border/60 bg-white/90 backdrop-blur-md rounded-lg px-3 sm:px-4 py-1.5 sm:py-2 hover:border-teal/50 hover:bg-white transition-all duration-200 whitespace-nowrap font-bold shadow-sm hover:shadow">
-        <svg className="w-4 h-4 shrink-0 text-teal" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-          <polyline points="9 22 9 12 15 12 15 22"/>
-        </svg>
-        Home
-      </button>
-
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-12 sm:py-16 flex flex-col gap-5 sm:gap-7">
+        <main className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 py-20 sm:py-24 flex flex-col gap-5 sm:gap-7">
 
 
         {/* INPUT PANELS */}
@@ -506,30 +508,33 @@ export default function AppPage() {
           )}
         </AnimatePresence>
 
-      </main>
+        </main>
+      </div>
 
       <Toast msg={toast} onClose={() => setToast('')} />
 
       {/* Footer Strip */}
-      <footer className="mt-auto bg-bg3 border-t border-border py-2 px-4">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm text-slate">
-          <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 text-center sm:text-left w-full sm:w-auto">
-            <img src="/logos/ict_logo_black.png" alt="ICT Department" className="h-6 sm:h-8 w-auto opacity-70" />
-            <div className="w-12 h-px sm:w-px sm:h-8 bg-border" />
-            <div className="flex flex-col leading-tight">
-              <strong className="text-navy">DeepFace Studio</strong>
-              <span>Dept. of ICT, Marwadi University</span>
+      <div className="flex flex-col bg-white">
+        <footer className="bg-bg3 border-t border-border py-2 px-4">
+          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm text-slate">
+            <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 text-center sm:text-left w-full sm:w-auto">
+              <img src="/logos/ict_logo_black.png" alt="ICT Department" className="h-6 sm:h-8 w-auto opacity-70" />
+              <div className="w-12 h-px sm:w-px sm:h-8 bg-border" />
+              <div className="flex flex-col leading-tight">
+                <strong className="text-navy">DeepFace Studio</strong>
+                <span>Dept. of ICT, Marwadi University</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-center font-medium">
+              <span>Educational use only</span>
+              <span className="text-border2">·</span>
+              <span>Local processing</span>
+              <span className="text-border2">·</span>
+              <span>© Aditya Raj 2026</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-center font-medium">
-            <span>Educational use only</span>
-            <span className="text-border2">·</span>
-            <span>Local processing</span>
-            <span className="text-border2">·</span>
-            <span>© Aditya Raj 2026</span>
-          </div>
-        </div>
-      </footer>
+        </footer>
+      </div>
     </div>
   );
 }
