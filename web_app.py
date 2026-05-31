@@ -319,14 +319,20 @@ def api_swap():
         # -- 4K upscale for download (RealESRGAN x4, Lanczos fallback) --------
         hi_res = upscale_image(swapped, scale=4)
 
-        # -- save 4K PNG output -----------------------------------------------
+        # -- save 4K PNG output (kept for the /api/download fallback) ----------
         out_name = f"swap_{uuid.uuid4().hex[:8]}.png"
         out_path = os.path.join(OUTPUT_DIR, out_name)
         save_image(hi_res, out_path)
 
+        # The 4K image is also returned inline as a data-URI so "Download" works
+        # client-side everywhere — including the HuggingFace Space, whose sandboxed
+        # iframe/proxy breaks the /api/download round-trip that works on localhost.
+        download_uri = _encode_image(hi_res, fmt="JPEG", quality=95)
+
         return jsonify({
             "ok": True,
             "result_image": _encode_image(swapped, fmt="JPEG", quality=92),
+            "download_image": download_uri,
             "quality": quality,
             "delta_e": round(delta_e, 2),
             "src_tone": src_tone,

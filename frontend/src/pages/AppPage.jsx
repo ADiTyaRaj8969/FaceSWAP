@@ -547,15 +547,15 @@ export default function AppPage() {
 
               {/* download row: full width on mobile, auto on sm+ */}
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <a href={result.output_file ? `/api/download/${result.output_file}` : result.result_image}
-                  download="face_swap_result.png"
+                <a href={result.download_image || result.result_image}
+                  download="face_swap_4k.jpg" target="_blank" rel="noreferrer"
                   className="flex items-center justify-center gap-2 bg-gradient-to-r from-olive to-lime text-forest px-5 sm:px-6 py-3 rounded-xl font-bold text-sm hover:-translate-y-0.5 transition-all duration-200 w-full sm:w-auto">
                   <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
                     <line x1="12" y1="15" x2="12" y2="3"/>
                   </svg>
-                  Download 4K PNG
+                  Download 4K
                 </a>
                 <button onClick={reset}
                   className="flex items-center justify-center gap-2 border border-border text-sage px-5 py-3 rounded-xl text-sm font-semibold hover:border-border2 hover:text-lime transition-colors w-full sm:w-auto">
