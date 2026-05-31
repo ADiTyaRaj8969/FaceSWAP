@@ -237,13 +237,12 @@ def api_swap():
         #    encoded so the on-screen result is sharp, not just the download.
         swapped = restore_faces(swapped)
 
-        # 3. Gently align the swapped face+neck to the TARGET complexion so the
-        #    face blends with the body and there's no jaw seam. Matching toward
-        #    the SOURCE instead looks pasted/washed-out when source and target
-        #    skin tones differ a lot (e.g. a light source on a dark target), so
-        #    we keep the target's complexion for a natural, consistent result.
+        # 3. Give the swapped face the SOURCE's complexion (the user's own skin
+        #    tone). Both the face AND neck are shifted together toward the source
+        #    tone, so they stay one consistent colour with no jaw seam; the
+        #    neck->collar transition is hidden by clothing.
         swapped = match_skin_to_source(
-            swapped, target, faces_tgt[0], faces_tgt[0], strength=0.5
+            swapped, source, faces_src[0], faces_tgt[0], strength=0.75
         )
 
         # 4. Optional: transplant the source's hair (opt-in). InsightFace only

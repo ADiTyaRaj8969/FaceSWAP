@@ -81,8 +81,9 @@ function ImagePreview({ file, b64, onClear, infoEl }) {
   const src = b64 || (file ? URL.createObjectURL(file) : null);
   if (!src) return null;
   return (
-    <div className="relative rounded-xl overflow-hidden border border-border">
-      <img src={src} alt="preview" className="w-full max-h-56 sm:max-h-64 object-cover block" />
+    <div className="relative rounded-xl overflow-hidden border border-border bg-bg3">
+      {/* object-contain so the whole face/image is always visible (never cropped) */}
+      <img src={src} alt="preview" className="w-full max-h-72 sm:max-h-96 object-contain block mx-auto" />
       {infoEl && (
         <div className="px-3 py-2 bg-bg3 border-t border-border text-xs text-sage min-h-[32px]">
           {infoEl}
@@ -535,7 +536,7 @@ export default function AppPage() {
                     <p className={`px-3 sm:px-4 py-2.5 text-xs font-bold uppercase tracking-widest bg-bg3 border-b border-border ${p.highlight ? 'text-lime' : 'text-[#6b7345]'}`}>
                       {p.label}{p.highlight ? ' ✓' : ''}
                     </p>
-                    <img src={p.src} alt={p.label} className="w-full max-h-48 sm:max-h-72 object-cover" />
+                    <img src={p.src} alt={p.label} className="w-full max-h-56 sm:max-h-80 object-contain bg-bg3" />
                   </TiltedCard>
                 ))}
               </div>
