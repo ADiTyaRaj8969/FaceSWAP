@@ -171,7 +171,7 @@ export default function AppPage() {
 
   const startTgtCamera = async () => {
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, facingMode: 'user' } });
+      const s = await _getCamStream();
       setTgtStream(s); setTgtCamActive(true);
     } catch (e) { setToast(_camError(e)); }
   };
@@ -211,16 +211,27 @@ export default function AppPage() {
     if (!navigator.mediaDevices?.getUserMedia)
       return 'Camera not available here (needs HTTPS or localhost). Use Upload.';
     switch (e?.name) {
-      case 'NotAllowedError':  return 'Camera permission blocked — allow it in the address-bar icon, then retry. Or use Upload.';
+      case 'NotAllowedError':  return 'Camera permission blocked — click the camera icon in the address bar, Allow, then retry. Or use Upload.';
       case 'NotFoundError':    return 'No camera found — use Upload instead.';
       case 'NotReadableError': return 'Camera is busy in another app — close it and retry.';
       default:                 return `Camera error (${e?.name || 'unknown'}) — use Upload instead.`;
     }
   };
 
+  // Try the ideal constraints, then fall back to any camera (some browsers/
+  // single-camera laptops reject facingMode).
+  const _getCamStream = async () => {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, facingMode: 'user' } });
+    } catch (e) {
+      if (e?.name === 'NotAllowedError') throw e;       // genuine denial — don't retry
+      return await navigator.mediaDevices.getUserMedia({ video: true });
+    }
+  };
+
   const startCamera = async () => {
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, facingMode: 'user' } });
+      const s = await _getCamStream();
       setStream(s); setCamActive(true);   // <video> mounts on camActive; effect attaches the stream
     } catch (e) { setToast(_camError(e)); }
   };
