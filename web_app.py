@@ -290,7 +290,8 @@ def api_swap():
             sw = _ifa.get(swapped) if _ifa else []
             tg = _ifa.get(target) if _ifa else []
             if sw and tg:
-                sk = np.asarray(max(sw, key=_area).kps, dtype=np.float32)
+                swf = max(sw, key=_area)
+                sk = np.asarray(swf.kps, dtype=np.float32)
                 tk = np.asarray(max(tg, key=_area).kps, dtype=np.float32)
                 err = float(np.linalg.norm(sk - tk, axis=1).mean())
                 iod = float(np.linalg.norm(tk[0] - tk[1])) or 1.0
@@ -298,6 +299,19 @@ def api_swap():
                 # lands within a few % (re-detection + GFPGAN shift the features
                 # slightly), so 0% => 100 and 15% => 0 gives an honest ~75-95.
                 quality["alignment"] = round(max(0.0, 100.0 * (1 - (err / iod) / 0.15)), 1)
+
+                # Naturalness on the FACE region only. Measuring the whole frame
+                # unfairly penalises studio shots (white background + dark shirt
+                # = lots of clipped pixels + hard edges) even when the face is
+                # perfect, so crop to the face before scoring.
+                from core.quality_checker import _naturalness_score
+                x1, y1, x2, y2 = [int(v) for v in swf.bbox]
+                pad = int((x2 - x1) * 0.25)
+                fy1, fy2 = max(0, y1 - pad), min(swapped.shape[0], y2 + pad)
+                fx1, fx2 = max(0, x1 - pad), min(swapped.shape[1], x2 + pad)
+                face = swapped[fy1:fy2, fx1:fx2]
+                if face.size > 0:
+                    quality["naturalness"] = _naturalness_score(face)
         except Exception as e:
             print(f"[swap] alignment metric skipped: {e}")
 

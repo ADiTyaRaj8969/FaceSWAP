@@ -123,13 +123,8 @@ export default function AppPage() {
   const [tgtB64,  setTgtB64]  = useState(null);
   const [tgtInfo, setTgtInfo] = useState('');
 
-  const [blend, setBlend] = useState(85);
-  const [tone,  setTone]  = useState(90);
-  const [hair,  setHair]  = useState(80);
-  const [neck,  setNeck]  = useState(75);
   const [swapHairOpt, setSwapHairOpt] = useState(false);
   const [keepGlasses, setKeepGlasses] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
 
   const videoRef    = useRef(null);
   const canvasRef   = useRef(null);
@@ -234,10 +229,6 @@ export default function AppPage() {
     const fd = new FormData();
     if (srcFile) fd.append('source_file', srcFile); else fd.append('source_b64', srcB64);
     if (tgtFile) fd.append('target_file', tgtFile); else fd.append('target_b64', tgtB64);
-    fd.append('blend_strength', blend);
-    fd.append('tone_match',     tone);
-    fd.append('hair_preserve',  hair);
-    fd.append('neck_blend',     neck);
     fd.append('swap_hair',      swapHairOpt ? '1' : '0');
     fd.append('keep_glasses',   keepGlasses ? '1' : '0');
 
@@ -487,67 +478,35 @@ export default function AppPage() {
           </SpotlightCard>
         </div>
 
-        {/* SETTINGS */}
-        <div className="bg-bg2 border border-border rounded-2xl overflow-hidden">
-          <button onClick={() => setShowSettings(p => !p)}
-            className="w-full flex items-center gap-3 px-4 sm:px-5 py-3.5 sm:py-4 text-sage text-xs sm:text-sm font-semibold hover:text-lime transition-colors">
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
-            Advanced Settings
-            <span className={`ml-auto text-xs transition-transform duration-200 ${showSettings ? 'rotate-180' : ''}`}>&#9662;</span>
-          </button>
-
-          <AnimatePresence>
-            {showSettings && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.22 }} className="overflow-hidden">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 px-4 sm:px-5 pb-4 sm:pb-5">
-                  {[
-                    { label: 'Blend Strength',   val: blend, set: setBlend },
-                    { label: 'Skin Tone Match',   val: tone,  set: setTone  },
-                    { label: 'Hair Preservation', val: hair,  set: setHair  },
-                    { label: 'Neck Blend',        val: neck,  set: setNeck  },
-                  ].map(s => (
-                    <div key={s.label} className="flex flex-col gap-2">
-                      <label className="flex justify-between text-xs text-sage font-medium">
-                        {s.label}<span className="text-lime font-bold">{s.val}%</span>
-                      </label>
-                      <input type="range" min="0" max="100" value={s.val}
-                        onChange={e => s.set(+e.target.value)}
-                        className="w-full accent-lime h-1 bg-border2 rounded-full cursor-pointer" />
-                    </div>
-                  ))}
-                </div>
-                <div className="px-4 sm:px-5 pb-4 sm:pb-5 flex flex-col gap-3">
-                  <label className="flex items-center gap-3 cursor-pointer select-none">
-                    <input type="checkbox" checked={swapHairOpt}
-                      onChange={e => setSwapHairOpt(e.target.checked)}
-                      className="w-4 h-4 accent-lime cursor-pointer" />
-                    <span className="text-xs text-sage font-medium">
-                      Swap hair too <span className="text-lime">(experimental)</span>
-                      <span className="block text-[10px] text-sage/60">
-                        Transplants the source's hair. Works best with a clear, front-facing source; may look artificial.
-                      </span>
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer select-none">
-                    <input type="checkbox" checked={keepGlasses}
-                      onChange={e => setKeepGlasses(e.target.checked)}
-                      className="w-4 h-4 accent-lime cursor-pointer" />
-                    <span className="text-xs text-sage font-medium">
-                      Keep source glasses <span className="text-lime">(experimental)</span>
-                      <span className="block text-[10px] text-sage/60">
-                        Carries the source's spectacles onto the swap. Best with a front-facing source; may look slightly pasted.
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        {/* OPTIONS — always visible so the toggles are discoverable */}
+        <div className="bg-bg2 border border-border rounded-2xl px-4 sm:px-5 py-4">
+          <p className="text-sage text-xs sm:text-sm font-semibold mb-3 flex items-center gap-2">
+            <span className="text-lime">&#9881;</span> Options
+          </p>
+          <div className="flex flex-col gap-3">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input type="checkbox" checked={swapHairOpt}
+                onChange={e => setSwapHairOpt(e.target.checked)}
+                className="w-4 h-4 accent-lime cursor-pointer shrink-0" />
+              <span className="text-xs text-sage font-medium">
+                Swap hair too <span className="text-lime">(experimental, slower)</span>
+                <span className="block text-[10px] text-sage/60">
+                  Transplants the source's hairstyle (HairFastGAN). Best with a clear, front-facing source.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input type="checkbox" checked={keepGlasses}
+                onChange={e => setKeepGlasses(e.target.checked)}
+                className="w-4 h-4 accent-lime cursor-pointer shrink-0" />
+              <span className="text-xs text-sage font-medium">
+                Keep source glasses <span className="text-lime">(experimental)</span>
+                <span className="block text-[10px] text-sage/60">
+                  Carries the source's spectacles onto the swap. May look slightly pasted on some photos.
+                </span>
+              </span>
+            </label>
+          </div>
         </div>
 
         {/* SWAP BUTTON */}
