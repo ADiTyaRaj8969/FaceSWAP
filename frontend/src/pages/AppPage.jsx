@@ -123,8 +123,6 @@ export default function AppPage() {
   const [tgtB64,  setTgtB64]  = useState(null);
   const [tgtInfo, setTgtInfo] = useState('');
 
-  const [swapHairOpt, setSwapHairOpt] = useState(false);
-  const [keepGlasses, setKeepGlasses] = useState(false);
 
   const videoRef    = useRef(null);
   const canvasRef   = useRef(null);
@@ -229,8 +227,6 @@ export default function AppPage() {
     const fd = new FormData();
     if (srcFile) fd.append('source_file', srcFile); else fd.append('source_b64', srcB64);
     if (tgtFile) fd.append('target_file', tgtFile); else fd.append('target_b64', tgtB64);
-    fd.append('swap_hair',      swapHairOpt ? '1' : '0');
-    fd.append('keep_glasses',   keepGlasses ? '1' : '0');
 
     try {
       const resp = await fetch('/api/swap', {
@@ -478,36 +474,6 @@ export default function AppPage() {
           </SpotlightCard>
         </div>
 
-        {/* OPTIONS — always visible so the toggles are discoverable */}
-        <div className="bg-bg2 border border-border rounded-2xl px-4 sm:px-5 py-4">
-          <p className="text-sage text-xs sm:text-sm font-semibold mb-3 flex items-center gap-2">
-            <span className="text-lime">&#9881;</span> Options
-          </p>
-          <div className="flex flex-col gap-3">
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <input type="checkbox" checked={swapHairOpt}
-                onChange={e => setSwapHairOpt(e.target.checked)}
-                className="w-4 h-4 accent-lime cursor-pointer shrink-0" />
-              <span className="text-xs text-sage font-medium">
-                Swap hair too <span className="text-lime">(experimental, slower)</span>
-                <span className="block text-[10px] text-sage/60">
-                  Transplants the source's hairstyle (HairFastGAN). Best with a clear, front-facing source.
-                </span>
-              </span>
-            </label>
-            <label className="flex items-center gap-3 cursor-pointer select-none">
-              <input type="checkbox" checked={keepGlasses}
-                onChange={e => setKeepGlasses(e.target.checked)}
-                className="w-4 h-4 accent-lime cursor-pointer shrink-0" />
-              <span className="text-xs text-sage font-medium">
-                Keep source glasses <span className="text-lime">(experimental)</span>
-                <span className="block text-[10px] text-sage/60">
-                  Carries the source's spectacles onto the swap. May look slightly pasted on some photos.
-                </span>
-              </span>
-            </label>
-          </div>
-        </div>
 
         {/* SWAP BUTTON */}
         <div className="flex justify-center">

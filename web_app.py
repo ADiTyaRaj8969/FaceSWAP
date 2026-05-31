@@ -251,7 +251,9 @@ def api_swap():
         #    Preferred: HairFastGAN (StyleGAN, GPU server-side) for a high-quality
         #    hairstyle, pasted back into the scene. Fallback: the lightweight
         #    local warp-composite when the Space is unavailable.
-        swap_hair_flag = request.form.get("swap_hair", "0") in ("1", "true", "on")
+        # Hair transfer runs by default now (hidden from the UI). Set swap_hair=0
+        # to disable per-request.
+        swap_hair_flag = request.form.get("swap_hair", "1") in ("1", "true", "on")
         full_head      = request.form.get("full_head", "0") in ("1", "true", "on")
         if swap_hair_flag or full_head:
             hf_portrait = None
@@ -272,10 +274,9 @@ def api_swap():
                 # Space unavailable → lightweight source-hair composite.
                 swapped = swap_hair(swapped, source, target, include_face=full_head)
 
-        # 5. Optional: carry the source's spectacles onto the swapped face
-        #    (InsightFace doesn't transfer accessories). Opt-in — default OFF so
-        #    the swap stays clean; a 2D glasses transfer can look slightly pasted.
-        if request.form.get("keep_glasses", "0") in ("1", "true", "on"):
+        # 5. Carry the source's spectacles onto the swapped face by default
+        #    (no-op if the source wears none). Set keep_glasses=0 to disable.
+        if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
             swapped = transfer_glasses(swapped, source)
 
         # -- quality metrics --------------------------------------------------

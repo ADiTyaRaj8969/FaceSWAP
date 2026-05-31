@@ -128,31 +128,42 @@ def restore_faces(image: np.ndarray) -> np.ndarray:
     return image
 
 
-def upscale_image(image: np.ndarray, scale: int = 4) -> np.ndarray:
+def upscale_image(image: np.ndarray, scale: int = 4,
+                  realesrgan_weight: float = 0.5) -> np.ndarray:
     """
     Upscale the whole frame ~scale x for the high-resolution download.
 
-    RealESRGAN is only used on GPU — on CPU (e.g. the HuggingFace free tier) a
-    4x pass on a 1024px frame takes 60-120s and risks an OOM/timeout, so we use
-    a fast Lanczos resize there instead. The facial sharpness comes from GFPGAN
-    in restore_faces() either way; this step only adds resolution.
+    RealESRGAN adds resolution but, being a general-purpose model, it over-sharpens
+    skin into a plastic/waxy texture on faces. So we BLEND it with a plain Lanczos
+    upscale (realesrgan_weight controls the mix: 0 = pure natural Lanczos, 1 = full
+    RealESRGAN) — keeping most of the detail while killing the artificial texture.
+
+    RealESRGAN is only used on GPU — on CPU (e.g. the HuggingFace free tier) a 4x
+    pass is too slow, so we fall back to pure Lanczos there.
     """
+    h, w = image.shape[:2]
+    lanczos = cv2.resize(image, (w * scale, h * scale),
+                         interpolation=cv2.INTER_LANCZOS4)
+
     if _device() == "cuda":
         upsampler = _load_realesrgan()
         if upsampler is not None:
             try:
                 output, _ = upsampler.enhance(image, outscale=scale)
                 if output is not None:
-                    h, w = output.shape[:2]
-                    print(f"[super_res] RealESRGAN {scale}x -> {w}x{h}")
-                    return output
+                    if output.shape[:2] != lanczos.shape[:2]:
+                        output = cv2.resize(output, (lanczos.shape[1], lanczos.shape[0]),
+                                            interpolation=cv2.INTER_LANCZOS4)
+                    blended = cv2.addWeighted(output, realesrgan_weight,
+                                              lanczos, 1.0 - realesrgan_weight, 0)
+                    print(f"[super_res] RealESRGAN+Lanczos {scale}x -> "
+                          f"{blended.shape[1]}x{blended.shape[0]} (re={realesrgan_weight})")
+                    return blended
             except Exception as e:
                 print(f"[super_res] RealESRGAN enhance failed: {e}")
 
-    h, w = image.shape[:2]
     print(f"[super_res] Lanczos {scale}x -> {w*scale}x{h*scale}")
-    return cv2.resize(image, (w * scale, h * scale),
-                      interpolation=cv2.INTER_LANCZOS4)
+    return lanczos
 
 
 def enhance_resolution(image: np.ndarray, scale: int = 4) -> np.ndarray:
