@@ -186,6 +186,11 @@ def swap_hair(
         warped_mask = np.clip(warped_mask, 0.0, 1.0)
         alpha = np.stack([warped_mask] * 3, axis=-1)
 
+        # Match the source hair's exposure to the target scene before compositing.
+        # Without this, hair from a brightly-lit source photo looks like a cut-out
+        # when pasted onto a dimmer target scene.
+        warped_src = _match_lighting(warped_src, swapped, warped_mask)
+
         result = (warped_src.astype(np.float32) * alpha +
                   swapped.astype(np.float32) * (1.0 - alpha))
         return np.clip(result, 0, 255).astype(np.uint8)

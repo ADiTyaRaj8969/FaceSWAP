@@ -33,6 +33,7 @@ from core.super_res import restore_faces, upscale_image
 from core.head_swap import (swap_hair, match_skin_to_source, transfer_glasses,
                             full_head_swap)
 from core.hair_transfer import transfer_hair
+from core.blender import laplacian_blend
 from core.quality_checker import compute_quality_score
 from utils.image_io import resize_keep_aspect
 
@@ -301,6 +302,18 @@ def api_swap():
                     swapped = swap_hair(swapped, source, target, include_face=full_head)
             if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
                 swapped = transfer_glasses(swapped, source)
+
+        # 5. Laplacian pyramid blend over the face boundary — multi-scale so
+        #    high-frequency hair/skin detail and low-frequency colour transitions
+        #    are blended independently. This eliminates the hard edge that can
+        #    remain after InsightFace's paste_back and the hair composite above.
+        try:
+            from core.segmentor import segment_hair_neck_skin
+            face_mask = segment_hair_neck_skin(swapped).get("face_mask")
+            if face_mask is not None and face_mask.max() > 0:
+                swapped = laplacian_blend(target, swapped, face_mask, levels=4)
+        except Exception as e:
+            print(f"[swap] Laplacian blend skipped: {e}")
 
         # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(swapped, target, None, None)
