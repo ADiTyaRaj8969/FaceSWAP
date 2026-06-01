@@ -65,17 +65,37 @@ def extract_landmarks_68(image: np.ndarray) -> np.ndarray | None:
 
 
 def _fallback_landmarks(image: np.ndarray) -> np.ndarray | None:
-    """Minimal fallback using OpenCV face detection to synthesize landmarks."""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
-    faces = cascade.detectMultiScale(gray, 1.1, 5, minSize=(64, 64))
-    if len(faces) == 0:
-        return None
+    """
+    Fallback when MediaPipe is unavailable: use InsightFace 5-point keypoints
+    (left eye, right eye, nose, left mouth, right mouth) mapped to a sparse
+    468-point array so downstream callers get real anatomical positions.
+    Returns None if InsightFace is also unavailable — callers must handle None.
 
-    x, y, w, h = faces[0]
-    # Generate synthetic 468 points distributed over the face bounding box
-    rng = np.random.default_rng(42)
-    pts = rng.uniform([x, y], [x + w, y + h], size=(468, 2)).astype(np.float32)
-    return pts
+    The previous implementation returned random uniform noise inside the face
+    bounding box, which silently corrupted alignment transforms and quality
+    scores whenever MediaPipe failed.
+    """
+    from .detector import _get_insightface
+    app = _get_insightface()
+    if app is None:
+        return None
+    try:
+        faces = app.get(image)
+        if not faces:
+            return None
+        face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+        kps = np.asarray(face.kps, dtype=np.float32)  # shape (5, 2)
+
+        # Map the 5 InsightFace keypoints to their nearest MediaPipe indices so
+        # _get_key_indices() in aligner.py selects them correctly.
+        #   kps[0] = left eye   → MP 33
+        #   kps[1] = right eye  → MP 263
+        #   kps[2] = nose tip   → MP 1
+        #   kps[3] = left mouth → MP 61
+        #   kps[4] = right mouth→ MP 291
+        pts = np.zeros((468, 2), dtype=np.float32)
+        for mp_idx, kp in zip([33, 263, 1, 61, 291], kps):
+            pts[mp_idx] = kp
+        return pts
+    except Exception:
+        return None

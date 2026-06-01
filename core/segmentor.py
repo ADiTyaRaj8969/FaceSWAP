@@ -2,42 +2,12 @@ import cv2
 import cv2.data
 import numpy as np
 
-_bisenet_model = None
-
 def _torch_device():
     try:
         import torch
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     except Exception:
         return "cpu"
-
-
-def _get_bisenet():
-    """Load BiSeNet model if available; returns None otherwise."""
-    global _bisenet_model
-    if _bisenet_model is not None:
-        return _bisenet_model
-
-    try:
-        import torch
-        import torchvision.transforms as transforms
-
-        model_path = "models/bisenet_face_parsing.pth"
-        import os
-        if not os.path.exists(model_path):
-            return None
-
-        # Inline BiSeNet-style model (simplified 19-class face parser)
-        from torchvision.models.segmentation import fcn_resnet50
-        device = _torch_device()
-        model = fcn_resnet50(num_classes=19, pretrained=False)
-        state = torch.load(model_path, map_location=device)
-        model.load_state_dict(state, strict=False)
-        model.eval().to(device)
-        _bisenet_model = (model, device)  # store device alongside model
-        return _bisenet_model
-    except Exception:
-        return None
 
 
 # BiSeNet class indices for face parsing
@@ -54,45 +24,31 @@ def segment_hair_neck_skin(image: np.ndarray) -> dict:
     """
     Segment hair, skin (face), and neck regions.
     Returns dict with 'face_mask', 'hair_mask', 'neck_mask' (uint8 0/255).
-    Falls back to landmark-based heuristics if model unavailable.
+    Uses facexlib BiSeNet (via head_swap._get_parser) when available;
+    falls back to Haar-cascade heuristics otherwise.
     """
-    result = _get_bisenet()
-    if result is not None:
-        model, device = result
-        return _segment_with_bisenet(image, model, device)
-    return _segment_heuristic(image)
-
-
-def _segment_with_bisenet(image: np.ndarray, model, device) -> dict:
     try:
-        import torch
-        import torchvision.transforms as T
+        from .head_swap import _get_parser, _parse_region_mask
+        import cv2 as _cv2
+        from .detector import detect_faces as _detect
 
+        parser = _get_parser()
+        if parser is None:
+            return _segment_heuristic(image)
+
+        faces = _detect(image)
+        if not faces:
+            return _segment_heuristic(image)
+
+        bbox = faces[0]
         h, w = image.shape[:2]
-        transform = T.Compose([
-            T.ToPILImage(),
-            T.Resize((512, 512)),
-            T.ToTensor(),
-            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
-        inp = transform(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).unsqueeze(0).to(device)
-
-        with torch.no_grad():
-            out = model(inp)["out"]
-        pred = out.argmax(1).squeeze().cpu().numpy()  # back to CPU for numpy
-        pred = cv2.resize(pred.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
-
-        def cls_mask(classes):
-            m = np.zeros((h, w), dtype=np.uint8)
-            for c in classes:
-                m[pred == c] = 255
-            return m
-
-        return {
-            "face_mask": cls_mask(_FACE_CLASSES),
-            "hair_mask": cls_mask(_HAIR_CLASSES),
-            "neck_mask": cls_mask(_NECK_CLASSES),
-        }
+        face_mask = (_parse_region_mask(image, bbox, {1, 2, 3, 4, 5, 10, 11, 12, 13},
+                                        up=0.3, down=0.3, side=0.4) * 255).astype(np.uint8)
+        hair_mask = (_parse_region_mask(image, bbox, {17},
+                                        up=0.9, down=0.1, side=0.5) * 255).astype(np.uint8)
+        neck_mask = (_parse_region_mask(image, bbox, {14},
+                                        up=0.1, down=1.0, side=0.4) * 255).astype(np.uint8)
+        return {"face_mask": face_mask, "hair_mask": hair_mask, "neck_mask": neck_mask}
     except Exception:
         return _segment_heuristic(image)
 

@@ -60,31 +60,59 @@ def _get_insightface():
     return _insightface_app
 
 
+def _clahe_enhance(image: np.ndarray) -> np.ndarray:
+    """
+    Boost contrast with CLAHE on the L channel so face detectors can find
+    faces in poorly-lit, backlit, or underexposed photos.
+    """
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    lab = cv2.merge([clahe.apply(l), a, b])
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+
+def _detect_insightface(image: np.ndarray) -> list:
+    app = _get_insightface()
+    if app is None:
+        return []
+    try:
+        faces = app.get(image)
+        if not faces:
+            return []
+        bboxes = []
+        for face in faces:
+            x1, y1, x2, y2 = face.bbox.astype(int)
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(image.shape[1], x2), min(image.shape[0], y2)
+            if (x2 - x1) >= 40 and (y2 - y1) >= 40:
+                bboxes.append((x1, y1, x2, y2))
+        return bboxes
+    except Exception:
+        return []
+
+
 def detect_faces(image: np.ndarray) -> list:
     if image is None or image.size == 0:
         return []
 
-    app = _get_insightface()
-    if app is not None:
-        try:
-            faces = app.get(image)
-            if faces:
-                bboxes = []
-                for face in faces:
-                    x1, y1, x2, y2 = face.bbox.astype(int)
-                    x1, y1 = max(0, x1), max(0, y1)
-                    x2, y2 = min(image.shape[1], x2), min(image.shape[0], y2)
-                    if (x2 - x1) >= 64 and (y2 - y1) >= 64:
-                        bboxes.append((x1, y1, x2, y2))
-                if bboxes:
-                    return bboxes
-        except Exception:
-            pass
+    # First attempt on the original image.
+    result = _detect_insightface(image)
+    if result:
+        return result
 
-    # Fallback: Haar cascade
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Low-light / poor-contrast retry: CLAHE enhances the luminance channel
+    # before re-running InsightFace and the Haar fallback. Handles phone photos
+    # taken in dim rooms, harsh backlit shots, and heavily shadowed faces.
+    enhanced = _clahe_enhance(image)
+    result = _detect_insightface(enhanced)
+    if result:
+        return result
+
+    # Final fallback: Haar cascade (works on both original and CLAHE image).
+    gray = cv2.cvtColor(enhanced, cv2.COLOR_BGR2GRAY)
     cascade = _get_cascade()
-    detections = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(64, 64))
+    detections = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
     if len(detections) == 0:
         return []
     return [(x, y, x + w, y + h) for (x, y, w, h) in detections]

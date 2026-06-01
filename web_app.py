@@ -219,9 +219,31 @@ def api_swap():
         faces_src = _safe_detect(source)
         faces_tgt = _safe_detect(target)
         if not faces_src:
-            return jsonify({"ok": False, "error": "No face detected in source image"}), 400
+            return jsonify({"ok": False, "error":
+                "No face detected in source image. Tips: ensure good lighting, "
+                "face the camera directly, remove heavy occlusions (mask/sunglasses), "
+                "and use a photo where the face is at least 10% of the frame."}), 400
         if not faces_tgt:
-            return jsonify({"ok": False, "error": "No face detected in target image"}), 400
+            return jsonify({"ok": False, "error":
+                "No face detected in target image. Tips: ensure good lighting, "
+                "face the camera directly, and use a clear frontal portrait."}), 400
+
+        # -- warn on very small detected faces (quality will be poor) ---------
+        warnings = []
+        x1, y1, x2, y2 = faces_src[0]
+        src_face_px = min(x2 - x1, y2 - y1)
+        if src_face_px < 80:
+            warnings.append(
+                "Source face is very small — swap quality may be reduced. "
+                "Use a closer/higher-resolution photo for best results."
+            )
+        x1, y1, x2, y2 = faces_tgt[0]
+        tgt_face_px = min(x2 - x1, y2 - y1)
+        if tgt_face_px < 80:
+            warnings.append(
+                "Target face is very small — swap quality may be reduced. "
+                "Use a closer/higher-resolution photo for best results."
+            )
 
         # -- skin tone analysis (for the info chips only) ---------------------
         src_tone = analyze_skin_tone(source, faces_src[0])
@@ -333,6 +355,7 @@ def api_swap():
             "delta_e": round(delta_e, 2),
             "src_tone": src_tone,
             "tgt_tone": tgt_tone,
+            "warnings": warnings,
         })
 
     except Exception as e:
