@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, Link }    from 'react-router-dom';
+import { useNavigate }           from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import TiltedCard    from '../components/ui/TiltedCard';
 import SpotlightCard from '../components/ui/SpotlightCard';
@@ -431,7 +431,7 @@ export default function AppPage() {
         {/* SWAP BUTTON */}
         <div className="flex justify-center">
           <button onClick={runSwap}
-            disabled={swapping || (!srcFile && !srcB64) || !tgtFile}
+            disabled={swapping || (!srcFile && !srcB64) || (!tgtFile && !tgtB64)}
             className="w-full sm:w-auto flex items-center justify-center gap-3 bg-teal text-white px-8 sm:px-10 py-3.5 sm:py-4 rounded-xl font-bold text-sm sm:text-base shadow-lg shadow-teal/20 hover:shadow-xl hover:shadow-teal/30 hover:-translate-y-0.5 active:scale-95 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none">
             <svg className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
@@ -455,7 +455,7 @@ export default function AppPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
                 {[
                   { label: 'Source',  src: srcFile ? URL.createObjectURL(srcFile) : srcB64 },
-                  { label: 'Target',  src: tgtFile ? URL.createObjectURL(tgtFile) : '' },
+                  { label: 'Target',  src: tgtFile ? URL.createObjectURL(tgtFile) : tgtB64 },
                   { label: 'Swapped', src: result.result_image, highlight: true },
                 ].map(p => (
                   <TiltedCard key={p.label}
