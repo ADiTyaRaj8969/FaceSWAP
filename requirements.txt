@@ -1,7 +1,6 @@
 # requirements.txt
 
 # Core
-streamlit==1.35.0
 opencv-python==4.9.0.80
 numpy==1.26.4
 Pillow==10.3.0
@@ -43,4 +42,4 @@ tqdm==4.66.4
 pyyaml==6.0.1
 python-dotenv==1.0.1
 requests==2.32.2
-protobuf>=3.20,<4.0
+protobuf>=4.25.3,<6.0

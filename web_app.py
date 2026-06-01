@@ -4,8 +4,8 @@ Run: python web_app.py
 Then open http://localhost:5000
 """
 import os
-# Must be set before any protobuf-using package (mediapipe, insightface) is imported.
-# Prevents 'SymbolDatabase has no attribute GetPrototype' with protobuf 3.20+.
+# Required before importing mediapipe/insightface on some platforms to avoid
+# protobuf C-extension symbol errors.
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 import io
 import base64
@@ -311,7 +311,7 @@ def api_swap():
             from core.segmentor import segment_hair_neck_skin
             face_mask = segment_hair_neck_skin(swapped).get("face_mask")
             if face_mask is not None and face_mask.max() > 0:
-                swapped = laplacian_blend(target, swapped, face_mask, levels=4)
+                swapped = laplacian_blend(swapped, target, face_mask, levels=4)
         except Exception as e:
             print(f"[swap] Laplacian blend skipped: {e}")
 

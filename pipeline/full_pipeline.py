@@ -77,7 +77,7 @@ def run_full_pipeline(
 
     _progress(75, "Applying Laplacian pyramid blending...")
     blend_mask = tgt_masks["face_mask"]
-    swapped = laplacian_blend(target, swapped, blend_mask, levels=4)
+    swapped = laplacian_blend(swapped, target, blend_mask, levels=4)
     swapped = poisson_blend(swapped, target, blend_mask)
 
     _progress(85, "Harmonizing colors and lighting...")
