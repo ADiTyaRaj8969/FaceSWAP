@@ -23,6 +23,17 @@ jobs:
       - name: Push to Hugging Face Spaces
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_USER: aditya-rAj19
+          HF_SPACE: FaceSWAP
         run: |
-          git remote add hf https://aditya-rAj19:${HF_TOKEN}@huggingface.co/spaces/aditya-rAj19/FaceSWAP || true
-          git push hf main --force
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::HF_TOKEN secret is empty or not set."
+            echo "Add it at: GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret"
+            echo "Name: HF_TOKEN   Value: a Hugging Face token with WRITE access (huggingface.co -> Settings -> Access Tokens)"
+            exit 1
+          fi
+          # Token-in-URL auth; %s-encode safe. Force-push the repo to the Space.
+          git remote remove hf 2>/dev/null || true
+          git remote add hf "https://${HF_USER}:${HF_TOKEN}@huggingface.co/spaces/${HF_USER}/${HF_SPACE}"
+          echo "Pushing to https://huggingface.co/spaces/${HF_USER}/${HF_SPACE} ..."
+          git push hf HEAD:main --force
