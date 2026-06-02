@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate }           from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import TiltedCard    from '../components/ui/TiltedCard';
@@ -102,6 +102,23 @@ const STAGES = [
 
 const locImgUrl = (gender, folder) =>
   `/api/location-image?gender=${encodeURIComponent(gender)}&location=${encodeURIComponent(folder)}`;
+
+// Personalised, gently-motivating message shown with the result — uses the
+// person's name + the location they chose to picture themselves on campus.
+const MOTIVATION_TEMPLATES = [
+  (n, loc) => `${n}, you look right at home in the ${loc}! 🎓 Imagine making memories like this every single day — your journey at Marwadi University could start right here.`,
+  (n, loc) => `Looking great, ${n}! 💙 This glimpse of you at the ${loc} could be so much more than a picture — it could be your everyday. Marwadi University is ready for you.`,
+  (n, loc) => `${n}, the ${loc} suits you perfectly! ✨ Picture yourself learning, building and growing here. Your future at Marwadi University is just one step away.`,
+  (n, loc) => `This is only a preview, ${n} — but it doesn't have to be. Step into the ${loc} for real and let your story begin at Marwadi University. 🚀`,
+  (n, loc) => `Welcome to the ${loc}, ${n}! 🌟 Some people just belong on this campus — and you're clearly one of them. Marwadi University could be where your dreams take shape.`,
+];
+
+const motivationFor = (name, loc) => {
+  const n = (name || 'Future Student').trim();
+  const l = loc || 'campus';
+  const idx = (n.length + l.length) % MOTIVATION_TEMPLATES.length;
+  return MOTIVATION_TEMPLATES[idx](n, l);
+};
 
 export default function AppPage() {
   const navigate = useNavigate();
@@ -263,6 +280,13 @@ export default function AppPage() {
   };
 
   const locationLabel = locations.find(l => l.folder === location)?.label || '';
+
+  // Stable per-result motivational message (recomputed only when a new result
+  // arrives), personalised with the user's name + chosen location.
+  const motivation = useMemo(
+    () => (result ? motivationFor(result.name, locationLabel) : ''),
+    [result, locationLabel],
+  );
 
   return (
     <div className="bg-bg font-sans text-navy overflow-x-hidden">
@@ -473,6 +497,25 @@ export default function AppPage() {
                 <h2 className="text-lg sm:text-xl font-extrabold text-navy text-center">
                   {result.name ? `${result.name}'s Result` : 'Results'}
                 </h2>
+
+                {/* Personalised motivational message */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.15 }}
+                  className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-teal to-teal-dark text-white px-5 sm:px-7 py-5 sm:py-6 shadow-lg shadow-teal/20">
+                  <div className="absolute -right-6 -top-6 opacity-10">
+                    <svg className="w-28 h-28" fill="currentColor" viewBox="0 0 24 24"><path d="M12 3L1 9l11 6 9-4.91V17h2V9M5 13.18v4L12 21l7-3.82v-4L12 17z"/></svg>
+                  </div>
+                  <div className="relative flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">A note for you</span>
+                      <p className="text-sm sm:text-base font-semibold leading-relaxed">{motivation}</p>
+                    </div>
+                  </div>
+                </motion.div>
 
                 {/* 3-panel comparison */}
                 <div className="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3">
