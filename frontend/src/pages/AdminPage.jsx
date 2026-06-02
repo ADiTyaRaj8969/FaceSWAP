@@ -9,9 +9,9 @@ import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } fr
 // with ALLOWED_ADMIN_EMAILS in the backend .env.
 //   ⚠️  Replace the two placeholders below with your real owner Gmail addresses.
 const ALLOWED_ADMINS = {
-  'adivid198986@gmail.com': { name: 'Aditya Raj', role: 'Primary Admin' },
-  'owner2@gmail.com':       { name: 'Owner 2',    role: 'Admin' },
-  'owner3@gmail.com':       { name: 'Owner 3',    role: 'Admin' },
+  'adivid198986@gmail.com':       { name: 'Aditya Raj',    role: 'Primary Admin' },
+  'nishith.kotak@gmail.com':      { name: 'Nishith Kotak', role: 'Admin' },
+  'cdparmar9824416484@gmail.com': { name: 'C D Parmar',    role: 'Admin' },
 };
 // ═══════════════════════════════════════════════════════════════════════════════
 

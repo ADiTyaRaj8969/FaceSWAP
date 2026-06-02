@@ -55,7 +55,7 @@ _IMG_EXTS     = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 ALLOWED_ADMIN_EMAILS = set(filter(None, (
     e.strip().lower() for e in
     (os.environ.get("ALLOWED_ADMIN_EMAILS")
-     or "adivid198986@gmail.com,owner2@gmail.com,owner3@gmail.com").split(",")
+     or "adivid198986@gmail.com,nishith.kotak@gmail.com,cdparmar9824416484@gmail.com").split(",")
 )))
 
 # Firebase Web API key — used to verify the owner's Google ID token server-side.
