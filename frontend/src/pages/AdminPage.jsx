@@ -109,7 +109,8 @@ function ManageLocations() {
 
   const load = (g) => {
     setLoading(true);
-    fetch(`/api/locations?gender=${g}`)
+    // no-store + timestamp so the panel always reflects the latest photos
+    fetch(`/api/locations?gender=${g}&t=${Date.now()}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => { setLocations(d.ok ? d.locations : []); setCacheBust(Date.now()); })
       .catch(() => setLocations([]))
