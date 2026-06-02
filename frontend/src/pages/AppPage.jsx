@@ -298,7 +298,21 @@ export default function AppPage() {
           Home
         </button>
 
-        <main className="flex-1 w-full max-w-5xl mx-auto px-3 sm:px-6 pt-16 sm:pt-20 pb-10 sm:pb-14 flex flex-col gap-4 sm:gap-6">
+        <main className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-20 sm:pt-24 pb-12 sm:pb-16 flex flex-col gap-5 sm:gap-6">
+
+          {/* ── PAGE HEADER ──────────────────────────────────────────────── */}
+          <div className="text-center flex flex-col items-center gap-2 mb-1">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-teal bg-teal/8 border border-teal/15 rounded-full px-3 py-1">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4L12 17l-6.3 4.4L8 14 2 9.4h7.6z"/></svg>
+              DeepFace Studio
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-navy tracking-tight">
+              See yourself on campus
+            </h1>
+            <p className="text-sm text-slate font-medium max-w-md">
+              Three quick steps — add your details, your photo, and pick a spot. We'll place you there.
+            </p>
+          </div>
 
           {/* ── STEP 1: YOUR DETAILS (name + gender) ───────────────────────── */}
           <SpotlightCard className="bg-white border border-border/60 rounded-2xl sm:rounded-3xl p-5 sm:p-7 flex flex-col gap-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-20px_rgba(15,23,42,0.12)]">
@@ -339,8 +353,8 @@ export default function AppPage() {
             </div>
           </SpotlightCard>
 
-          {/* ── STEP 2 + 3: photo (left) and location (right) ─────────────────── */}
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_28px_1fr] items-start gap-3 sm:gap-0">
+          {/* ── STEP 2 + 3: photo, then location (stacked) ──────────────────── */}
+          <div className="flex flex-col gap-5 sm:gap-6">
 
             {/* SOURCE PHOTO */}
             <SpotlightCard className="bg-white border border-border/60 rounded-2xl sm:rounded-3xl p-5 sm:p-7 flex flex-col gap-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-20px_rgba(15,23,42,0.12)]">
@@ -402,18 +416,6 @@ export default function AppPage() {
                 <ImagePreview file={srcFile} b64={srcB64} infoEl={srcInfo} onClear={() => { setSrcFile(null); setSrcB64(null); setSrcInfo(''); }} />
               )}
             </SpotlightCard>
-
-            {/* arrow — sm+ */}
-            <div className="hidden sm:flex items-center justify-center pt-20 text-border2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-            </div>
-
-            {/* divider — mobile */}
-            <div className="sm:hidden flex items-center gap-3">
-              <div className="flex-1 h-px bg-border" />
-              <span className="text-slate text-xs font-bold tracking-widest">THEN</span>
-              <div className="flex-1 h-px bg-border" />
-            </div>
 
             {/* LOCATION */}
             <SpotlightCard className="bg-white border border-border/60 rounded-2xl sm:rounded-3xl p-5 sm:p-7 flex flex-col gap-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-20px_rgba(15,23,42,0.12)]">

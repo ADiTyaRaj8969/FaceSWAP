@@ -642,9 +642,11 @@ def api_swap():
 
         # 3. SOURCE complexion across face+neck (one consistent tone, no jaw
         #    seam; the head swap already carries the source skin, this also pulls
-        #    the target's visible neck to match).
+        #    the target's visible neck to match). Strength 0.92 — the inswapper
+        #    adopts some of the target's lighting, so we pull strongly back to
+        #    the SOURCE complexion to keep the user's real skin tone.
         swapped = match_skin_to_source(
-            swapped, source, faces_src[0], faces_tgt[0], strength=0.75
+            swapped, source, faces_src[0], faces_tgt[0], strength=0.92
         )
 
         # 4. If we only did a FACE swap (head transplant unavailable), add the
