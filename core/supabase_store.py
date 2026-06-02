@@ -65,12 +65,13 @@ def list_locations(gender: str) -> list:
             f"{SUPABASE_URL}/rest/v1/locations",
             headers=_rest_headers(),
             params={"gender": f"eq.{gender}", "order": "sort_order.asc,name.asc",
-                    "select": "name,image_path,sort_order"},
+                    "select": "name,image_path,sort_order,message"},
             timeout=_TIMEOUT,
         )
         r.raise_for_status()
         return [{"folder": row["name"], "label": row["name"],
-                 "has_image": bool(row.get("image_path"))} for row in r.json()]
+                 "has_image": bool(row.get("image_path")),
+                 "message": row.get("message") or ""} for row in r.json()]
     except Exception as e:
         print(f"[supabase] list_locations failed: {e}")
         return []
@@ -201,6 +202,19 @@ def rename_location(gender: str, name: str, new_name: str) -> dict:
         timeout=_TIMEOUT,
     ).raise_for_status()
     return {"folder": new_name, "label": new_name}
+
+
+def set_message(gender: str, name: str, message: str):
+    """Set/clear the owner's custom result message for a location."""
+    if _get_row(gender, name) is None:
+        raise RuntimeError("Location not found.")
+    requests.patch(
+        f"{SUPABASE_URL}/rest/v1/locations",
+        headers=_rest_headers({"Prefer": "return=minimal"}),
+        params={"gender": f"eq.{gender}", "name": f"eq.{name}"},
+        json={"message": (message or "").strip() or None},
+        timeout=_TIMEOUT,
+    ).raise_for_status()
 
 
 def delete_location(gender: str, name: str):

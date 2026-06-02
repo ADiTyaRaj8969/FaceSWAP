@@ -166,9 +166,19 @@ def _list_locations(gender: str) -> list:
 
     out = []
     for name in sorted(os.listdir(gender_dir), key=sort_key):
-        if os.path.isdir(os.path.join(gender_dir, name)):
+        folder = os.path.join(gender_dir, name)
+        if os.path.isdir(folder):
+            msg = ""
+            mp = os.path.join(folder, "message.txt")
+            if os.path.isfile(mp):
+                try:
+                    with open(mp, encoding="utf-8") as f:
+                        msg = f.read().strip()
+                except OSError:
+                    pass
             out.append({"folder": name, "label": _clean_location_label(name),
-                        "has_image": _find_location_image(gender, name) is not None})
+                        "has_image": _find_location_image(gender, name) is not None,
+                        "message": msg})
     return out
 
 
@@ -509,6 +519,47 @@ def api_admin_rename_location():
             return jsonify({"ok": False, "error": "A location with that name already exists."}), 409
         os.rename(src, dst)
     return jsonify({"ok": True, "folder": new_folder, "label": _clean_location_label(new_folder)})
+
+
+@app.route("/api/admin/location/message", methods=["POST"])
+def api_admin_set_message():
+    """
+    Owner (any admin) sets/clears a location's custom result message. The message
+    may contain {name} and {location} placeholders, filled in on the result.
+    """
+    if not _check_admin(request):
+        return jsonify({"ok": False, "error": "Unauthorised - owner login required."}), 401
+
+    data     = request.get_json(silent=True) or request.form
+    gender   = (data.get("gender") or "").strip().capitalize()
+    location = (data.get("location") or "").strip()      # folder/name
+    message  = (data.get("message") or "").strip()
+    if gender not in VALID_GENDERS or not location:
+        return jsonify({"ok": False, "error": "gender and location are required."}), 400
+    if ".." in location or "/" in location or "\\" in location:
+        return jsonify({"ok": False, "error": "Invalid location."}), 400
+
+    if supabase_store.is_enabled():
+        try:
+            supabase_store.set_message(gender, location, message)
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 502
+
+    # FS fallback: store message.txt alongside the image.
+    folder_path = os.path.join(LOCATIONS_DIR, gender, location)
+    if not os.path.isdir(folder_path):
+        return jsonify({"ok": False, "error": "Location not found."}), 404
+    msg_path = os.path.join(folder_path, "message.txt")
+    try:
+        if message:
+            with open(msg_path, "w", encoding="utf-8") as f:
+                f.write(message)
+        elif os.path.exists(msg_path):
+            os.remove(msg_path)
+        return jsonify({"ok": True})
+    except OSError as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/detect", methods=["POST"])

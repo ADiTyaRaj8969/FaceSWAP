@@ -101,21 +101,43 @@ const STAGES = [
 ];
 
 
-// Personalised, gently-motivating message shown with the result — uses the
-// person's name + the location they chose to picture themselves on campus.
-const MOTIVATION_TEMPLATES = [
-  (n, loc) => `${n}, you look right at home in the ${loc}! 🎓 Imagine making memories like this every single day — your journey at Marwadi University could start right here.`,
-  (n, loc) => `Looking great, ${n}! 💙 This glimpse of you at the ${loc} could be so much more than a picture — it could be your everyday. Marwadi University is ready for you.`,
-  (n, loc) => `${n}, the ${loc} suits you perfectly! ✨ Picture yourself learning, building and growing here. Your future at Marwadi University is just one step away.`,
-  (n, loc) => `This is only a preview, ${n} — but it doesn't have to be. Step into the ${loc} for real and let your story begin at Marwadi University. 🚀`,
-  (n, loc) => `Welcome to the ${loc}, ${n}! 🌟 Some people just belong on this campus — and you're clearly one of them. Marwadi University could be where your dreams take shape.`,
+// A unique, gently-motivating message for every location (keyed by the clean
+// label). Each weaves in the person's name and nudges toward Marwadi University.
+const LOCATION_MESSAGES = {
+  'Marwadi University':       (n) => `${n}, standing tall at Marwadi University looks good on you! 🎓 This could be your campus every single morning. Your journey starts right here.`,
+  'ICT Department':           (n) => `${n}, you fit right into the ICT Department! 💻 Imagine building the future from here. Marwadi University is ready to welcome you.`,
+  'Library':                  (n) => `${n}, the Library suits you. 📚 A quiet corner, big dreams, endless books. Picture yourself studying here at Marwadi University.`,
+  'Library G Floor':          (n) => `${n}, the Library looks like your kind of place. 📖 Room to think, room to grow. Your study spot at Marwadi University is waiting.`,
+  'Electronic Circuit Lab':   (n) => `${n}, you look right at home in the Electronic Circuit Lab! ⚡ Hands-on learning like this is waiting for you at Marwadi University.`,
+  'Embedded System Lab':      (n) => `${n}, the Embedded System Lab is calling! 🔧 Design real systems from scratch. Your seat at Marwadi University is ready.`,
+  'Data Science And AI Lab':  (n) => `${n}, you belong in the Data Science & AI Lab! 🤖 Train models, shape tomorrow. Start your journey at Marwadi University.`,
+  'Ideation Lab':             (n) => `${n}, the Ideation Lab fits your spark! 💡 This is where ideas become startups. Come build yours at Marwadi University.`,
+  'IoT Lab':                  (n) => `${n}, you look great in the IoT Lab! 📡 Connect the whole world from here. Marwadi University is ready for you.`,
+  'VLSI Lab':                 (n) => `${n}, the VLSI Lab suits you perfectly! 🔬 Design the chips that power the future at Marwadi University.`,
+  'Web Development Lab':      (n) => `${n}, you fit right into the Web Development Lab! 🌐 Build the web of tomorrow. Your place at Marwadi University awaits.`,
+  'Project Lab':              (n) => `${n}, the Project Lab looks like your kind of place! 🛠️ Turn bold ideas into reality here at Marwadi University.`,
+  'Programming Lab':          (n) => `${n}, you belong in the Programming Lab! 👨‍💻 Code your future one line at a time. Marwadi University is ready to welcome you.`,
+  'MUIIR':                    (n) => `${n}, MUIIR fits your ambition! 🚀 Innovation and incubation live here. Bring your ideas to Marwadi University.`,
+  'Classroom':                (n) => `${n}, you look right at home in the Classroom! 📖 Learn from the very best at Marwadi University.`,
+  'Sports Ground':            (n) => `${n}, the Sports Ground suits your energy! 🏅 Play, compete, belong. This could be your campus at Marwadi University.`,
+  'Field':                    (n) => `${n}, you look great out on the Field! 🌳 Campus life is so much more than classes. Come live it at Marwadi University.`,
+  'Music Room':               (n) => `${n}, the Music Room fits your rhythm! 🎶 Find your beat on campus at Marwadi University.`,
+  'Ground':                   (n) => `${n}, you own the Ground! 🌟 From right here, every dream feels reachable. Start yours at Marwadi University.`,
+};
+
+// Generic fallback for any location not in the map above.
+const FALLBACK_MESSAGES = [
+  (n, loc) => `${n}, you look right at home in the ${loc}! 🎓 Imagine making memories like this every day at Marwadi University.`,
+  (n, loc) => `${n}, the ${loc} suits you perfectly! ✨ Your future at Marwadi University is just one step away.`,
+  (n, loc) => `Welcome to the ${loc}, ${n}! 🌟 Some people just belong on this campus, and you're clearly one of them.`,
 ];
 
 const motivationFor = (name, loc) => {
   const n = (name || 'Future Student').trim();
-  const l = loc || 'campus';
-  const idx = (n.length + l.length) % MOTIVATION_TEMPLATES.length;
-  return MOTIVATION_TEMPLATES[idx](n, l);
+  const l = (loc || 'campus').trim();
+  if (LOCATION_MESSAGES[l]) return LOCATION_MESSAGES[l](n);
+  const idx = (n.length + l.length) % FALLBACK_MESSAGES.length;
+  return FALLBACK_MESSAGES[idx](n, l);
 };
 
 export default function AppPage() {
@@ -196,10 +218,10 @@ export default function AppPage() {
     if (!navigator.mediaDevices?.getUserMedia)
       return 'Camera not available here (needs HTTPS or localhost). Use Upload.';
     switch (e?.name) {
-      case 'NotAllowedError':  return 'Camera permission blocked — click the camera icon in the address bar, Allow, then retry. Or use Upload.';
-      case 'NotFoundError':    return 'No camera found — use Upload instead.';
-      case 'NotReadableError': return 'Camera is busy in another app — close it and retry.';
-      default:                 return `Camera error (${e?.name || 'unknown'}) — use Upload instead.`;
+      case 'NotAllowedError':  return 'Camera permission blocked - click the camera icon in the address bar, Allow, then retry. Or use Upload.';
+      case 'NotFoundError':    return 'No camera found - use Upload instead.';
+      case 'NotReadableError': return 'Camera is busy in another app - close it and retry.';
+      default:                 return `Camera error (${e?.name || 'unknown'}) - use Upload instead.`;
     }
   };
 
@@ -275,14 +297,21 @@ export default function AppPage() {
     stopCamera();
   };
 
-  const locationLabel = locations.find(l => l.folder === location)?.label || '';
+  const selectedLoc  = locations.find(l => l.folder === location);
+  const locationLabel = selectedLoc?.label || '';
+  const customMessage = selectedLoc?.message || '';
 
-  // Stable per-result motivational message (recomputed only when a new result
-  // arrives), personalised with the user's name + chosen location.
-  const motivation = useMemo(
-    () => (result ? motivationFor(result.name, locationLabel) : ''),
-    [result, locationLabel],
-  );
+  // Result message: the owner's custom message for this location if set
+  // (with {name}/{location} filled in), otherwise the built-in per-location one.
+  const motivation = useMemo(() => {
+    if (!result) return '';
+    const n = (result.name || 'Future Student').trim();
+    const l = locationLabel || 'campus';
+    if (customMessage) {
+      return customMessage.replaceAll('{name}', n).replaceAll('{location}', l);
+    }
+    return motivationFor(n, l);
+  }, [result, locationLabel, customMessage]);
 
   return (
     <div className="bg-bg font-sans text-navy overflow-x-hidden">
@@ -306,7 +335,7 @@ export default function AppPage() {
               See yourself on campus
             </h1>
             <p className="text-xs sm:text-sm text-slate font-medium">
-              Add your details, a photo, and pick a spot — we'll place you there.
+              Add your details, a photo, and pick a spot - we'll place you there.
             </p>
           </div>
 
@@ -517,14 +546,14 @@ export default function AppPage() {
                 {/* download row */}
                 <div className="flex flex-col sm:flex-row gap-3 justify-center mt-2">
                   <a href={result.download_image || result.result_image}
-                    download={`${(result.name || 'face_swap').replace(/\s+/g,'_')}_4k.jpg`} target="_blank" rel="noreferrer"
+                    download={`${(result.name || 'campus_look').replace(/\s+/g,'_')}.jpg`} target="_blank" rel="noreferrer"
                     className="flex items-center justify-center gap-2 bg-teal text-white px-5 sm:px-6 py-3 rounded-xl font-bold text-sm shadow-md hover:bg-teal-light hover:-translate-y-0.5 transition-all duration-200 w-full sm:w-auto">
                     <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                       <polyline points="7 10 12 15 17 10"/>
                       <line x1="12" y1="15" x2="12" y2="3"/>
                     </svg>
-                    Download 4K
+                    Download
                   </a>
                   <button onClick={reset}
                     className="flex items-center justify-center gap-2 bg-white border border-border shadow-sm text-navy px-5 py-3 rounded-xl text-sm font-semibold hover:border-teal/40 hover:text-teal transition-colors w-full sm:w-auto">

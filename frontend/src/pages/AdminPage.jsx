@@ -41,12 +41,12 @@ function GoogleLogin({ denied }) {
     } catch (e) {
       const code = e?.code || '';
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        // user closed the popup — ignore
+        // user closed the popup - ignore
       } else if (code === 'auth/unauthorized-domain') {
         setError('This site\'s domain isn\'t authorised in Firebase. Add it under '
                + 'Firebase Console → Authentication → Settings → Authorized domains.');
       } else if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') {
-        // Popup blocked (or COOP) — fall back to full-page redirect sign-in.
+        // Popup blocked (or COOP) - fall back to full-page redirect sign-in.
         try { await signInWithRedirect(auth, googleProvider); return; }
         catch { setError('Sign-in failed (popup blocked). Allow popups and retry.'); }
       } else {
@@ -73,7 +73,7 @@ function GoogleLogin({ denied }) {
         </div>
 
         <h2 className="text-xl font-extrabold text-navy text-center mb-1">Control Panel</h2>
-        <p className="text-xs text-slate text-center mb-6">Authorised owners only — sign in with Google</p>
+        <p className="text-xs text-slate text-center mb-6">Authorised owners only - sign in with Google</p>
 
         <button onClick={signIn} disabled={loading}
           className="w-full flex items-center justify-center gap-3 border border-border bg-white rounded-xl py-3 font-semibold text-sm text-navy shadow-sm hover:border-teal/50 hover:shadow active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
@@ -158,7 +158,7 @@ function ManageLocations({ isPrimary }) {
     try {
       const d = await upload(name.trim(), file);
       if (d.ok) {
-        flash('ok', `Saved "${d.label}" for ${d.gender} — live on the app page.`);
+        flash('ok', `Saved "${d.label}" for ${d.gender} - live on the app page.`);
         setName(''); setFile(null); setPreview(null);
         if (fileRef.current) fileRef.current.value = '';
         load(gender);
@@ -195,6 +195,25 @@ function ManageLocations({ isPrimary }) {
       const d = await r.json();
       if (d.ok) { flash('ok', `Renamed to "${d.label}".`); load(gender); }
       else      flash('err', d.error || 'Rename failed.');
+    } catch (e) { flash('err', 'Network error: ' + e.message); }
+  };
+
+  const editMessage = async (folder, label, current) => {
+    const next = window.prompt(
+      `Custom message for "${label}".\n\nUse {name} and {location} as placeholders. They are filled in automatically.\nLeave blank to use the default message.`,
+      current || '',
+    );
+    if (next === null) return;   // cancelled
+    try {
+      const tok = await getIdToken();
+      const r = await fetch('/api/admin/location/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': tok },
+        body: JSON.stringify({ gender, location: folder, message: next.trim() }),
+      });
+      const d = await r.json();
+      if (d.ok) { flash('ok', next.trim() ? `Message saved for "${label}".` : `Message cleared for "${label}".`); load(gender); }
+      else      flash('err', d.error || 'Could not save message.');
     } catch (e) { flash('err', 'Network error: ' + e.message); }
   };
 
@@ -333,6 +352,7 @@ function ManageLocations({ isPrimary }) {
 
             <div className="px-2 py-1.5 flex-1">
               <p className="text-[11px] font-semibold text-navy leading-tight line-clamp-2" title={l.label}>{l.label}</p>
+              {l.message && <p className="text-[9px] text-teal mt-0.5 line-clamp-1" title={l.message}>✎ custom message</p>}
             </div>
 
             {/* actions */}
@@ -340,6 +360,10 @@ function ManageLocations({ isPrimary }) {
               <button onClick={() => startReplace(l.folder)} title="Replace photo"
                 className="flex-1 py-1.5 flex items-center justify-center text-slate hover:text-teal hover:bg-teal/[0.04] transition-colors">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </button>
+              <button onClick={() => editMessage(l.folder, l.label, l.message)} title="Edit message"
+                className={`flex-1 py-1.5 flex items-center justify-center transition-colors hover:bg-teal/[0.04] ${l.message ? 'text-teal' : 'text-slate hover:text-teal'}`}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
               </button>
               <button onClick={() => rename(l.folder, l.label)} title="Rename"
                 className="flex-1 py-1.5 flex items-center justify-center text-slate hover:text-teal hover:bg-teal/[0.04] transition-colors">

@@ -12,10 +12,14 @@ create table if not exists public.locations (
   name        text not null,
   sort_order  int  not null default 0,
   image_path  text,
+  message     text,                       -- owner's custom result message (optional)
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   unique (gender, name)
 );
+
+-- If the table already existed before `message` was added, run this once:
+alter table public.locations add column if not exists message text;
 
 create index if not exists locations_gender_order_idx
   on public.locations (gender, sort_order);
