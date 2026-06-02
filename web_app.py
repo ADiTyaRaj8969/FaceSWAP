@@ -66,7 +66,7 @@ def _decode_image(data_or_file) -> np.ndarray | None:
 
     try:
         pil = Image.open(io.BytesIO(raw))
-        pil = ImageOps.exif_transpose(pil)        # auto-rotate per EXIF orientation
+        pil = ImageOps.exif_transpose(pil) or pil  # auto-rotate; fallback if None
         return cv2.cvtColor(np.array(pil.convert("RGB")), cv2.COLOR_RGB2BGR)
     except Exception:
         # Fallback: raw decode (no EXIF) if PIL can't read it.
