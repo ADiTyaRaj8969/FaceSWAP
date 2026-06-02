@@ -302,10 +302,6 @@ export default function AppPage() {
 
           {/* ── PAGE HEADER ──────────────────────────────────────────────── */}
           <div className="text-center flex flex-col items-center gap-2 mb-1">
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-teal bg-teal/8 border border-teal/15 rounded-full px-3 py-1">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4L12 17l-6.3 4.4L8 14 2 9.4h7.6z"/></svg>
-              DeepFace Studio
-            </span>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-navy tracking-tight">
               See yourself on campus
             </h1>
