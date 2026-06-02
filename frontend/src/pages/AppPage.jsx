@@ -156,7 +156,8 @@ export default function AppPage() {
     let cancelled = false;
     setLoadingLocs(true);
     setLocation('');
-    fetch(`/api/locations?gender=${gender}`)
+    // cache:'no-store' + timestamp so newly-added/updated locations always sync
+    fetch(`/api/locations?gender=${gender}&t=${Date.now()}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(d => { if (!cancelled) setLocations(d.ok ? d.locations : []); })
       .catch(() => { if (!cancelled) setLocations([]); })
@@ -305,7 +306,7 @@ export default function AppPage() {
         <main className="flex-1 w-full max-w-5xl mx-auto px-3 sm:px-6 pt-16 sm:pt-20 pb-10 sm:pb-14 flex flex-col gap-4 sm:gap-6">
 
           {/* ── STEP 1: YOUR DETAILS (name + gender) ───────────────────────── */}
-          <SpotlightCard className="bg-white border border-border shadow-sm rounded-2xl p-4 sm:p-6 flex flex-col gap-4">
+          <SpotlightCard className="bg-white border border-border/60 rounded-2xl sm:rounded-3xl p-5 sm:p-7 flex flex-col gap-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-20px_rgba(15,23,42,0.12)]">
             <div>
               <h2 className="text-navy font-bold flex items-center gap-2 text-sm sm:text-base">
                 <span className="w-5 h-5 sm:w-6 sm:h-6 bg-teal rounded-full flex items-center justify-center text-xs font-extrabold text-white shrink-0 shadow-sm">1</span>
@@ -347,7 +348,7 @@ export default function AppPage() {
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_28px_1fr] items-start gap-3 sm:gap-0">
 
             {/* SOURCE PHOTO */}
-            <SpotlightCard className="bg-white border border-border shadow-sm rounded-2xl p-4 sm:p-6 flex flex-col gap-4">
+            <SpotlightCard className="bg-white border border-border/60 rounded-2xl sm:rounded-3xl p-5 sm:p-7 flex flex-col gap-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-20px_rgba(15,23,42,0.12)]">
               <div>
                 <h2 className="text-navy font-bold flex items-center gap-2 text-sm sm:text-base">
                   <span className="w-5 h-5 sm:w-6 sm:h-6 bg-teal rounded-full flex items-center justify-center text-xs font-extrabold text-white shrink-0 shadow-sm">2</span>
@@ -420,7 +421,7 @@ export default function AppPage() {
             </div>
 
             {/* LOCATION */}
-            <SpotlightCard className="bg-white border border-border shadow-sm rounded-2xl p-4 sm:p-6 flex flex-col gap-4">
+            <SpotlightCard className="bg-white border border-border/60 rounded-2xl sm:rounded-3xl p-5 sm:p-7 flex flex-col gap-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-20px_rgba(15,23,42,0.12)]">
               <div>
                 <h2 className="text-navy font-bold flex items-center gap-2 text-sm sm:text-base">
                   <span className="w-5 h-5 sm:w-6 sm:h-6 bg-teal rounded-full flex items-center justify-center text-xs font-extrabold text-white shrink-0 shadow-sm">3</span>

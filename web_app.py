@@ -313,7 +313,9 @@ def api_locations():
         return jsonify({"ok": False, "error": "gender must be Male or Female"}), 400
     locs = supabase_store.list_locations(gender) if supabase_store.is_enabled() \
         else _list_locations(gender)
-    return jsonify({"ok": True, "gender": gender, "locations": locs})
+    resp = jsonify({"ok": True, "gender": gender, "locations": locs})
+    resp.headers["Cache-Control"] = "no-store"   # always reflect latest uploads
+    return resp
 
 
 @app.route("/api/location-image", methods=["GET"])
