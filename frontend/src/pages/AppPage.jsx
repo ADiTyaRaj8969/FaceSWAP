@@ -56,11 +56,11 @@ function DropZone({ onFile, disabled }) {
       onDrop={e => { e.preventDefault(); setDragging(false); handle(e.dataTransfer.files[0]); }}
       onDragOver={e => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
-      className={`border-2 border-dashed rounded-xl p-6 sm:p-10 flex flex-col items-center gap-3 cursor-pointer transition-all duration-200
+      className={`border-2 border-dashed rounded-xl p-5 sm:p-6 flex flex-col items-center gap-2 cursor-pointer transition-all duration-200
         ${dragging ? 'border-teal bg-teal/5' : 'border-border2 hover:border-teal/50 hover:bg-teal/[0.02]'}
         ${disabled ? 'opacity-40 pointer-events-none' : ''}`}
     >
-      <svg className="w-9 h-9 sm:w-10 sm:h-10 text-slate" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+      <svg className="w-8 h-8 text-slate" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
         <rect x="3" y="3" width="18" height="18" rx="2"/>
         <circle cx="8.5" cy="8.5" r="1.5"/>
         <polyline points="21 15 16 10 5 21"/>
@@ -68,7 +68,7 @@ function DropZone({ onFile, disabled }) {
       <p className="text-navy text-sm font-medium text-center">
         Drag and drop or <span className="text-teal underline">browse</span>
       </p>
-      <p className="text-slate text-xs">JPG · PNG · WEBP · max {MAX_MB} MB</p>
+      <p className="text-slate text-[11px]">JPG · PNG · WEBP · max {MAX_MB} MB</p>
       <input ref={inputRef} type="file" accept="image/*" hidden onChange={e => handle(e.target.files[0])} />
     </div>
   );
@@ -80,7 +80,7 @@ function ImagePreview({ file, b64, onClear, infoEl }) {
   if (!src) return null;
   return (
     <div className="relative rounded-xl overflow-hidden border border-border bg-bg3">
-      <img src={src} alt="preview" className="w-full max-h-72 sm:max-h-96 object-contain block mx-auto bg-white" />
+      <img src={src} alt="preview" className="w-full max-h-48 sm:max-h-56 object-contain block mx-auto bg-white" />
       {infoEl && (
         <div className="px-3 py-2 bg-white border-t border-border text-xs text-navy-light font-medium min-h-[32px] text-center">
           {infoEl}
@@ -298,20 +298,20 @@ export default function AppPage() {
           Home
         </button>
 
-        <main className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-20 sm:pt-24 pb-12 sm:pb-16 flex flex-col gap-5 sm:gap-6">
+        <main className="flex-1 w-full max-w-5xl mx-auto px-3 sm:px-6 pt-14 sm:pt-16 pb-6 flex flex-col gap-3.5 sm:gap-4">
 
           {/* ── PAGE HEADER ──────────────────────────────────────────────── */}
-          <div className="text-center flex flex-col items-center gap-2 mb-1">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-navy tracking-tight">
+          <div className="text-center flex flex-col items-center gap-0.5">
+            <h1 className="text-xl sm:text-2xl font-extrabold text-navy tracking-tight">
               See yourself on campus
             </h1>
-            <p className="text-sm text-slate font-medium max-w-md">
-              Three quick steps — add your details, your photo, and pick a spot. We'll place you there.
+            <p className="text-xs sm:text-sm text-slate font-medium">
+              Add your details, a photo, and pick a spot — we'll place you there.
             </p>
           </div>
 
           {/* ── STEP 1: YOUR DETAILS (name + gender) ───────────────────────── */}
-          <SpotlightCard className="bg-white border border-border/60 rounded-2xl sm:rounded-3xl p-5 sm:p-7 flex flex-col gap-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-20px_rgba(15,23,42,0.12)]">
+          <SpotlightCard className="bg-white border border-border/60 rounded-2xl p-4 sm:p-5 flex flex-col gap-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_12px_32px_-20px_rgba(15,23,42,0.12)]">
             <div>
               <h2 className="text-navy font-bold flex items-center gap-2 text-sm sm:text-base">
                 <span className="w-5 h-5 sm:w-6 sm:h-6 bg-teal rounded-full flex items-center justify-center text-xs font-extrabold text-white shrink-0 shadow-sm">1</span>
@@ -349,11 +349,11 @@ export default function AppPage() {
             </div>
           </SpotlightCard>
 
-          {/* ── STEP 2 + 3: photo, then location (stacked) ──────────────────── */}
-          <div className="flex flex-col gap-5 sm:gap-6">
+          {/* ── STEP 2 + 3: photo + location, side-by-side on desktop ───────── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5 sm:gap-4 items-start">
 
             {/* SOURCE PHOTO */}
-            <SpotlightCard className="bg-white border border-border/60 rounded-2xl sm:rounded-3xl p-5 sm:p-7 flex flex-col gap-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-20px_rgba(15,23,42,0.12)]">
+            <SpotlightCard className="bg-white border border-border/60 rounded-2xl p-4 sm:p-5 flex flex-col gap-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_12px_32px_-20px_rgba(15,23,42,0.12)]">
               <div>
                 <h2 className="text-navy font-bold flex items-center gap-2 text-sm sm:text-base">
                   <span className="w-5 h-5 sm:w-6 sm:h-6 bg-teal rounded-full flex items-center justify-center text-xs font-extrabold text-white shrink-0 shadow-sm">2</span>
@@ -414,7 +414,7 @@ export default function AppPage() {
             </SpotlightCard>
 
             {/* LOCATION */}
-            <SpotlightCard className="bg-white border border-border/60 rounded-2xl sm:rounded-3xl p-5 sm:p-7 flex flex-col gap-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_16px_40px_-20px_rgba(15,23,42,0.12)]">
+            <SpotlightCard className="bg-white border border-border/60 rounded-2xl p-4 sm:p-5 flex flex-col gap-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_12px_32px_-20px_rgba(15,23,42,0.12)]">
               <div>
                 <h2 className="text-navy font-bold flex items-center gap-2 text-sm sm:text-base">
                   <span className="w-5 h-5 sm:w-6 sm:h-6 bg-teal rounded-full flex items-center justify-center text-xs font-extrabold text-white shrink-0 shadow-sm">3</span>
@@ -460,10 +460,10 @@ export default function AppPage() {
           </div>
 
           {/* SWAP BUTTON */}
-          <div className="flex justify-center">
+          <div className="flex justify-center mt-1">
             <button onClick={runSwap}
               disabled={swapping || !name.trim() || (!srcFile && !srcB64) || !location}
-              className="w-full sm:w-auto flex items-center justify-center gap-3 bg-teal text-white px-8 sm:px-10 py-3.5 sm:py-4 rounded-xl font-bold text-sm sm:text-base shadow-lg shadow-teal/20 hover:shadow-xl hover:shadow-teal/30 hover:-translate-y-0.5 active:scale-95 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none">
+              className="w-full sm:w-auto flex items-center justify-center gap-2.5 bg-teal text-white px-8 sm:px-12 py-3 rounded-xl font-bold text-sm sm:text-base shadow-lg shadow-teal/20 hover:shadow-xl hover:shadow-teal/30 hover:-translate-y-0.5 active:scale-95 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none">
               <svg className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                 <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
                 <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
