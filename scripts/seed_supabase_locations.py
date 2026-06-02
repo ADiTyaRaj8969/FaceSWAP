@@ -56,34 +56,53 @@ def main():
 
     print(f"→ Supabase: {supabase_store.SUPABASE_URL}  bucket={supabase_store.BUCKET}\n")
 
-    uploaded = empty = errors = 0
+    uploaded = empty = errors = removed = 0
     for gender in ("Male", "Female"):
         gdir = os.path.join(LOCATIONS_DIR, gender)
         if not os.path.isdir(gdir):
             continue
         print(f"== {gender} ==")
+
+        # Only folders that actually contain a photo, in the original 1→19 order.
+        with_photos = []
         for folder in sorted(os.listdir(gdir), key=folder_number):
             fpath = os.path.join(gdir, folder)
             if not os.path.isdir(fpath):
                 continue
-            label = clean_label(folder)
-            order = folder_number(folder)
             imgs = [f for f in sorted(os.listdir(fpath)) if f.lower().endswith(IMG_EXTS)]
-            if not imgs:
-                print(f"   · {order:>2}. {label:<28} — no photo (skipped)")
+            if imgs:
+                with_photos.append((clean_label(folder), os.path.join(fpath, imgs[0])))
+            else:
+                print(f"   · {clean_label(folder):<28} — no photo (skipped)")
                 empty += 1
-                continue
+
+        # Upload, RESEQUENCED 1..N (gaps from skipped folders removed).
+        kept = set()
+        for seq, (label, img_path) in enumerate(with_photos, start=1):
             try:
-                data = to_jpeg_bytes(os.path.join(fpath, imgs[0]))
-                supabase_store.upsert_location(gender, label, data, sort_order=order)
-                print(f"   ✓ {order:>2}. {label:<28} ← {imgs[0]}")
+                data = to_jpeg_bytes(img_path)
+                supabase_store.upsert_location(gender, label, data, sort_order=seq)
+                kept.add(label)
+                print(f"   ✓ {seq:>2}. {label:<28} ← {os.path.basename(img_path)}")
                 uploaded += 1
             except Exception as e:
-                print(f"   ✗ {order:>2}. {label:<28} ERROR: {e}")
+                print(f"   ✗ {seq:>2}. {label:<28} ERROR: {e}")
                 errors += 1
+
+        # Remove any leftover Supabase rows for this gender that we didn't just
+        # upload (e.g. empty seeded rows, or locations whose photo was removed).
+        for row in supabase_store.list_locations(gender):
+            if row["label"] not in kept:
+                try:
+                    supabase_store.delete_location(gender, row["folder"])
+                    print(f"   ✗ removed stale: {row['label']}")
+                    removed += 1
+                except Exception as e:
+                    print(f"   ! could not remove {row['label']}: {e}")
         print()
 
-    print(f"Done — {uploaded} uploaded, {empty} empty, {errors} errors.")
+    print(f"Done — {uploaded} uploaded, {empty} empty (skipped), "
+          f"{removed} stale removed, {errors} errors.")
 
 
 if __name__ == "__main__":

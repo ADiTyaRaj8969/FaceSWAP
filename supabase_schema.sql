@@ -50,18 +50,9 @@ create policy "location images public read"
   on storage.objects for select
   using (bucket_id = 'location-images');
 
--- ── 4. (Optional) seed the 19 standard locations for both genders ────────────
--- Photos are added later via the Control Panel; these just pre-create the rows.
-insert into public.locations (gender, name, sort_order)
-select g.gender, l.name, l.ord
-from   (values ('Male'), ('Female')) as g(gender)
-cross join (values
-  (1,'Marwadi University'),(2,'ICT Department'),(3,'Library'),
-  (4,'Electronic Circuit Lab'),(5,'Embedded System Lab'),
-  (6,'Data Science And AI Lab'),(7,'Ideation Lab'),(8,'IoT Lab'),
-  (9,'VLSI Lab'),(10,'Web Development Lab'),(11,'Project Lab'),
-  (12,'Programming Lab'),(13,'MUIIR'),(14,'Classroom'),
-  (15,'Sports Ground'),(16,'Field'),(17,'Music Room'),
-  (18,'Library G Floor'),(19,'Ground')
-) as l(ord, name)
-on conflict (gender, name) do nothing;
+-- ── 4. Rows are NOT seeded here ──────────────────────────────────────────────
+-- Locations are created from the photos you actually uploaded, by running:
+--   python scripts/seed_supabase_locations.py
+-- Only folders that contain a photo become rows (resequenced 1..N per gender),
+-- and the Control Panel adds/updates more later. This avoids empty placeholder
+-- locations showing up on the app page.
