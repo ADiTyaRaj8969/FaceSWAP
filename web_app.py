@@ -50,19 +50,74 @@ LOCATIONS_DIR = "Location"            # Location/Male/<loc>/img  +  Location/Fem
 VALID_GENDERS = {"Male", "Female"}
 _IMG_EXTS     = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 
-# Owner passwords for the Control Panel write actions. These MUST match the
-# OWNERS list in frontend/src/pages/AdminPage.jsx. Override in production via env.
+# Control Panel access is restricted to these Google accounts. Keep in sync with
+# ALLOWED_ADMINS in frontend/src/pages/AdminPage.jsx. Comma-separated in env.
+ALLOWED_ADMIN_EMAILS = set(filter(None, (
+    e.strip().lower() for e in
+    (os.environ.get("ALLOWED_ADMIN_EMAILS")
+     or "adivid198986@gmail.com,owner2@gmail.com,owner3@gmail.com").split(",")
+)))
+
+# Firebase Web API key — used to verify the owner's Google ID token server-side.
+FIREBASE_API_KEY = os.environ.get(
+    "FIREBASE_API_KEY", "AIzaSyCF9t3xPf_Se4qkqAHFRoW-YqG8LfoQIpo")
+
+# Optional legacy passwords (break-glass). Empty by default — Google is primary.
 ADMIN_PASSWORDS = set(filter(None, (
-    os.environ.get("ADMIN_PASSWORD_1", "deepface@admin1"),
-    os.environ.get("ADMIN_PASSWORD_2", "deepface@admin2"),
+    os.environ.get("ADMIN_PASSWORD_1", ""),
+    os.environ.get("ADMIN_PASSWORD_2", ""),
 )))
 
 
+def _verify_google_email(id_token: str):
+    """
+    Verify a Firebase Google ID token via Identity Toolkit and return the
+    verified email (lowercased), or None. Rejects invalid/expired/unverified.
+    """
+    if not id_token or not FIREBASE_API_KEY:
+        return None
+    try:
+        import requests
+        r = requests.post(
+            f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={FIREBASE_API_KEY}",
+            json={"idToken": id_token}, timeout=10)
+        if r.status_code != 200:
+            return None
+        users = r.json().get("users") or []
+        if not users:
+            return None
+        u = users[0]
+        email = (u.get("email") or "").lower()
+        if not email or not u.get("emailVerified", False):
+            return None
+        return email
+    except Exception as e:
+        print(f"[admin] token verify failed: {e}")
+        return None
+
+
 def _check_admin(req) -> bool:
-    """Owner-only guard for admin endpoints. Password is sent by the logged-in
-    owner (header or form field) and checked against ADMIN_PASSWORDS."""
-    pw = req.headers.get("X-Admin-Token") or req.form.get("admin_token") or ""
-    return pw in ADMIN_PASSWORDS
+    """
+    Owner-only guard. Accepts a Firebase Google ID token (primary) whose verified
+    email must be on ALLOWED_ADMIN_EMAILS, or a legacy password (break-glass).
+    Token is read from the X-Admin-Token header, form field, or JSON body.
+    """
+    tok = req.headers.get("X-Admin-Token") or ""
+    if not tok and req.form:
+        tok = req.form.get("admin_token") or ""
+    if not tok:
+        data = req.get_json(silent=True) or {}
+        tok = data.get("admin_token") or ""
+    if not tok:
+        return False
+
+    # Firebase ID tokens are JWTs: header.payload.signature (two dots, long).
+    if tok.count(".") == 2 and len(tok) > 100:
+        email = _verify_google_email(tok)
+        return bool(email and email in ALLOWED_ADMIN_EMAILS)
+
+    # Legacy password fallback (only if any are configured).
+    return bool(ADMIN_PASSWORDS) and tok in ADMIN_PASSWORDS
 
 
 def _clean_location_label(name: str) -> str:
