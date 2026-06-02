@@ -1,7 +1,8 @@
 # requirements.txt
 
-# Core
-opencv-python==4.9.0.80
+# Core — use contrib build so basicsr/albumentations opencv requirement is satisfied
+# (opencv-contrib-python is a strict superset of opencv-python; provides same cv2)
+opencv-contrib-python>=4.9.0.80
 numpy==1.26.4
 Pillow==10.3.0
 scipy==1.13.0
@@ -17,6 +18,7 @@ torch==2.3.0
 torchvision==0.18.0
 # For GPU: torch==2.3.0+cu121
 scikit-image==0.23.2
+albumentations>=2.0.0        # pin 2.x — older versions require opencv-contrib separately
 basicsr==1.4.2
 facexlib==0.3.0
 gfpgan==1.3.8
