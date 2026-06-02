@@ -349,8 +349,8 @@ export default function AppPage() {
             </div>
           </SpotlightCard>
 
-          {/* ── STEP 2 + 3: photo + location, side-by-side on desktop ───────── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5 sm:gap-4 items-start">
+          {/* ── STEP 2 + 3: photo + location, side-by-side from tablet up ────── */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4 items-start">
 
             {/* SOURCE PHOTO */}
             <SpotlightCard className="bg-white border border-border/60 rounded-2xl p-4 sm:p-5 flex flex-col gap-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_12px_32px_-20px_rgba(15,23,42,0.12)]">

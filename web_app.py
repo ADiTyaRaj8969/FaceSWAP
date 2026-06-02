@@ -58,6 +58,13 @@ ALLOWED_ADMIN_EMAILS = set(filter(None, (
      or "adivid198986@gmail.com,nishith.kotak@gmail.com,cdparmar9824416484@gmail.com").split(",")
 )))
 
+# Primary admin(s) — full control incl. DELETE. Other allowlisted admins can
+# add + edit (update/rename) but NOT delete. Keep in sync with the frontend.
+PRIMARY_ADMIN_EMAILS = set(filter(None, (
+    e.strip().lower() for e in
+    (os.environ.get("PRIMARY_ADMIN_EMAILS") or "adivid198986@gmail.com").split(",")
+)))
+
 # Firebase Web API key — used to verify the owner's Google ID token server-side.
 FIREBASE_API_KEY = os.environ.get(
     "FIREBASE_API_KEY", "AIzaSyCF9t3xPf_Se4qkqAHFRoW-YqG8LfoQIpo")
@@ -96,10 +103,12 @@ def _verify_google_email(id_token: str):
         return None
 
 
-def _check_admin(req) -> bool:
+def _admin_identity(req):
     """
-    Owner-only guard. Accepts a Firebase Google ID token (primary) whose verified
-    email must be on ALLOWED_ADMIN_EMAILS, or a legacy password (break-glass).
+    Resolve the caller's admin identity from the request token.
+    Returns (email, is_admin):
+      - email: verified Google email (lowercased), or "" for legacy-password auth
+      - is_admin: True if authorised at all
     Token is read from the X-Admin-Token header, form field, or JSON body.
     """
     tok = req.headers.get("X-Admin-Token") or ""
@@ -109,15 +118,29 @@ def _check_admin(req) -> bool:
         data = req.get_json(silent=True) or {}
         tok = data.get("admin_token") or ""
     if not tok:
-        return False
+        return (None, False)
 
     # Firebase ID tokens are JWTs: header.payload.signature (two dots, long).
     if tok.count(".") == 2 and len(tok) > 100:
         email = _verify_google_email(tok)
-        return bool(email and email in ALLOWED_ADMIN_EMAILS)
+        if email and email in ALLOWED_ADMIN_EMAILS:
+            return (email, True)
+        return (None, False)
 
-    # Legacy password fallback (only if any are configured).
-    return bool(ADMIN_PASSWORDS) and tok in ADMIN_PASSWORDS
+    # Legacy password fallback (break-glass) — treated as a primary admin.
+    if bool(ADMIN_PASSWORDS) and tok in ADMIN_PASSWORDS:
+        return ("", True)
+    return (None, False)
+
+
+def _is_primary(email) -> bool:
+    """Primary admin (full control incl. delete). Legacy password == primary."""
+    return email == "" or (email is not None and email in PRIMARY_ADMIN_EMAILS)
+
+
+def _check_admin(req) -> bool:
+    """Authorised at all? (add/edit allowed for any admin)."""
+    return _admin_identity(req)[1]
 
 
 def _clean_location_label(name: str) -> str:
@@ -415,9 +438,13 @@ def api_admin_add_location():
 
 @app.route("/api/admin/location/delete", methods=["POST"])
 def api_admin_delete_location():
-    """Owner-only: delete a whole location folder for a gender."""
-    if not _check_admin(request):
+    """Primary-admin only: delete a whole location for a gender."""
+    _email, _ok = _admin_identity(request)
+    if not _ok:
         return jsonify({"ok": False, "error": "Unauthorised — owner login required."}), 401
+    if not _is_primary(_email):
+        return jsonify({"ok": False, "error":
+            "Only the Primary Admin can delete locations."}), 403
 
     data     = request.get_json(silent=True) or request.form
     gender   = (data.get("gender") or "").strip().capitalize()
