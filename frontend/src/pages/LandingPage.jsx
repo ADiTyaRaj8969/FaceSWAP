@@ -41,10 +41,11 @@ export default function LandingPage() {
 
           {/* Headline */}
           <div className="w-full px-2">
-            <h1 className="font-black leading-tight tracking-tight text-navy flex flex-col items-center gap-1 sm:gap-2"
-                style={{ fontSize: 'clamp(1.8rem, 6vw, 4rem)' }}>
-              {/* Typewriter — allow wrap on tiny screens */}
-              <span className="block w-full text-center overflow-hidden">
+            <h1 className="font-black tracking-tight text-navy flex flex-col items-center gap-1 sm:gap-2"
+                style={{ fontSize: 'clamp(1.8rem, 6vw, 4rem)', lineHeight: 1.25 }}>
+              {/* Typewriter — extra line-height + padding so Gujarati/Telugu/Hindi
+                  vowel marks (above & below the baseline) are never clipped */}
+              <span className="block w-full text-center leading-[1.5] py-1.5 overflow-visible">
                 <Typewriter words={[
                   'Your Future',
                   'તમારું ભવિષ્ય',
