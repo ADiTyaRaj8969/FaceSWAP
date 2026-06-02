@@ -53,3 +53,14 @@ npm-debug.log*
 # Vendored HairFastGAN repo + multi-GB weights (local GPU hair transfer)
 external/
 .claude/
+
+# Location target images live in Supabase (not git) — keep folders via .gitkeep
+Location/**/*.jpg
+Location/**/*.jpeg
+Location/**/*.png
+Location/**/*.webp
+Location/**/*.bmp
+Location/**/*.JPG
+Location/**/*.JPEG
+Location/**/*.PNG
+Location/**/*.WEBP

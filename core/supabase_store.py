@@ -150,21 +150,27 @@ def has_image(gender: str, name: str) -> bool:
 
 # ── mutations (owner / Control Panel) ─────────────────────────────────────────
 
-def upsert_location(gender: str, name: str, image_bytes: bytes) -> dict:
+def upsert_location(gender: str, name: str, image_bytes: bytes,
+                    sort_order: int | None = None) -> dict:
     """
     Create or update a location and store its image. `name` is the clean label.
-    Returns {folder, label}.
+    If sort_order is given it's applied (preserves an explicit ordering, e.g. the
+    folder number during migration); otherwise new rows get max+1. Returns
+    {folder, label}.
     """
     path = _image_path(gender, name)
     _upload_image(path, image_bytes)
 
     row = _get_row(gender, name)
     if row:
+        patch: dict[str, object] = {"image_path": path}
+        if sort_order is not None:
+            patch["sort_order"] = sort_order
         requests.patch(
             f"{SUPABASE_URL}/rest/v1/locations",
             headers=_rest_headers({"Prefer": "return=minimal"}),
             params={"gender": f"eq.{gender}", "name": f"eq.{name}"},
-            json={"image_path": path},
+            json=patch,
             timeout=_TIMEOUT,
         ).raise_for_status()
     else:
@@ -172,7 +178,8 @@ def upsert_location(gender: str, name: str, image_bytes: bytes) -> dict:
             f"{SUPABASE_URL}/rest/v1/locations",
             headers=_rest_headers({"Prefer": "return=minimal"}),
             json={"gender": gender, "name": name, "image_path": path,
-                  "sort_order": _next_sort_order(gender)},
+                  "sort_order": sort_order if sort_order is not None
+                                else _next_sort_order(gender)},
             timeout=_TIMEOUT,
         ).raise_for_status()
 
