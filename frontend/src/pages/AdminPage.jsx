@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -113,6 +113,252 @@ function LoginForm({ onLogin }) {
   );
 }
 
+// ── Manage Locations (complete CRUD) ─────────────────────────────────────────
+function ManageLocations({ token }) {
+  const [gender,    setGender]    = useState('Male');
+  const [locations, setLocations] = useState([]);
+  const [loading,   setLoading]   = useState(false);
+
+  const [name,    setName]    = useState('');
+  const [file,    setFile]    = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [busy,    setBusy]    = useState(false);
+  const [msg,     setMsg]     = useState(null);   // { type: 'ok'|'err', text }
+  const [cacheBust, setCacheBust] = useState(Date.now());
+
+  const fileRef        = useRef();   // add-form picker
+  const replaceRef     = useRef();   // per-card replace picker
+  const replaceFolder  = useRef(null);
+
+  const load = (g) => {
+    setLoading(true);
+    fetch(`/api/locations?gender=${g}`)
+      .then(r => r.json())
+      .then(d => { setLocations(d.ok ? d.locations : []); setCacheBust(Date.now()); })
+      .catch(() => setLocations([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(gender); }, [gender]);
+
+  const flash = (type, text) => setMsg({ type, text });
+
+  const pickFile = (f) => {
+    if (!f) return;
+    if (!f.type.startsWith('image/')) { flash('err', 'Please choose an image file.'); return; }
+    setFile(f); setPreview(URL.createObjectURL(f)); setMsg(null);
+  };
+
+  // Upload helper used by both the add-form and per-card replace.
+  const upload = async (locName, imgFile) => {
+    const fd = new FormData();
+    fd.append('admin_token', token);
+    fd.append('gender', gender);
+    fd.append('location', locName);
+    fd.append('image', imgFile);
+    const r = await fetch('/api/admin/location', { method: 'POST', body: fd });
+    return r.json();
+  };
+
+  const submit = async () => {
+    if (!name.trim()) { flash('err', 'Enter a location name.'); return; }
+    if (!file)        { flash('err', 'Choose an image.'); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const d = await upload(name.trim(), file);
+      if (d.ok) {
+        flash('ok', `Saved "${d.label}" for ${d.gender} — live on the app page.`);
+        setName(''); setFile(null); setPreview(null);
+        if (fileRef.current) fileRef.current.value = '';
+        load(gender);
+      } else flash('err', d.error || 'Upload failed.');
+    } catch (e) { flash('err', 'Network error: ' + e.message); }
+    finally     { setBusy(false); }
+  };
+
+  // Per-card "replace photo" → opens the hidden picker for that folder.
+  const startReplace = (folder) => { replaceFolder.current = folder; replaceRef.current?.click(); };
+  const onReplaceFile = async (f) => {
+    const folder = replaceFolder.current;
+    if (!f || !folder) return;
+    if (!f.type.startsWith('image/')) { flash('err', 'Please choose an image file.'); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const d = await upload(folder, f);          // folder name resolves to existing location
+      if (d.ok) { flash('ok', `Updated photo for "${d.label}".`); load(gender); }
+      else      flash('err', d.error || 'Update failed.');
+    } catch (e) { flash('err', 'Network error: ' + e.message); }
+    finally { setBusy(false); if (replaceRef.current) replaceRef.current.value = ''; }
+  };
+
+  const rename = async (folder, label) => {
+    const next = window.prompt(`Rename "${label}" to:`, label);
+    if (next == null || !next.trim() || next.trim() === label) return;
+    try {
+      const r = await fetch('/api/admin/location/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+        body: JSON.stringify({ gender, location: folder, new_name: next.trim() }),
+      });
+      const d = await r.json();
+      if (d.ok) { flash('ok', `Renamed to "${d.label}".`); load(gender); }
+      else      flash('err', d.error || 'Rename failed.');
+    } catch (e) { flash('err', 'Network error: ' + e.message); }
+  };
+
+  const remove = async (folder, label) => {
+    if (!window.confirm(`Delete "${label}" (${gender})? This removes the location and its photo.`)) return;
+    try {
+      const r = await fetch('/api/admin/location/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+        body: JSON.stringify({ gender, location: folder }),
+      });
+      const d = await r.json();
+      if (d.ok) { flash('ok', `Deleted "${label}".`); load(gender); }
+      else      flash('err', d.error || 'Delete failed.');
+    } catch (e) { flash('err', 'Network error: ' + e.message); }
+  };
+
+  const withPhoto = locations.filter(l => l.has_image).length;
+  const pending   = locations.length - withPhoto;
+
+  return (
+    <div className="bg-white border border-border rounded-2xl shadow-sm p-5 sm:p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-slate">Manage Locations</h3>
+        <button onClick={() => load(gender)} title="Refresh"
+          className="text-slate hover:text-teal transition-colors">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </button>
+      </div>
+
+      {/* Gender toggle */}
+      <div className="flex bg-bg3 border border-border rounded-lg p-1 gap-1 mb-3">
+        {['Male', 'Female'].map(g => (
+          <button key={g} onClick={() => setGender(g)}
+            className={`flex-1 py-2 rounded-md text-xs sm:text-sm font-semibold transition-all duration-200 ${gender === g ? 'bg-white text-teal shadow-sm border border-border/50' : 'text-slate hover:text-navy'}`}>
+            {g}
+          </button>
+        ))}
+      </div>
+
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-2 mb-5">
+        {[
+          { k: 'Total',   v: locations.length },
+          { k: 'With Photo', v: withPhoto },
+          { k: 'Pending', v: pending },
+        ].map(s => (
+          <div key={s.k} className="bg-bg3 rounded-lg px-3 py-2 text-center">
+            <p className="text-lg font-extrabold text-teal leading-none">{loading ? '–' : s.v}</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate mt-1">{s.k}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Add / update form */}
+      <div className="flex flex-col gap-3 bg-bg3 rounded-xl p-4 mb-5">
+        <p className="text-[11px] font-bold uppercase tracking-widest text-slate">Add / Update</p>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-navy-light uppercase tracking-wide">Location Name</label>
+          <input
+            type="text" value={name} onChange={e => setName(e.target.value)}
+            list="loc-suggestions" placeholder="e.g. Auditorium"
+            className="border border-border rounded-lg px-3 py-2.5 text-sm text-navy bg-white focus:outline-none focus:ring-2 focus:ring-teal/30 focus:border-teal transition-all"
+          />
+          <datalist id="loc-suggestions">
+            {locations.map(l => <option key={l.folder} value={l.label} />)}
+          </datalist>
+          <p className="text-[11px] text-slate">Type a new name, or pick an existing one to replace its photo.</p>
+        </div>
+
+        {/* Image picker */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-navy-light uppercase tracking-wide">Photo for {gender}</label>
+          <div
+            onClick={() => fileRef.current?.click()}
+            onDrop={e => { e.preventDefault(); pickFile(e.dataTransfer.files[0]); }}
+            onDragOver={e => e.preventDefault()}
+            className="border-2 border-dashed border-border2 rounded-lg p-4 flex items-center gap-3 cursor-pointer hover:border-teal/50 hover:bg-teal/[0.02] transition-all">
+            {preview
+              ? <img src={preview} alt="preview" className="w-16 h-16 object-cover rounded-md border border-border shrink-0" />
+              : <div className="w-16 h-16 rounded-md bg-white border border-border flex items-center justify-center shrink-0">
+                  <svg className="w-6 h-6 text-slate" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </div>}
+            <div className="flex flex-col">
+              <span className="text-sm font-semibold text-navy">{file ? file.name : 'Choose / drop image'}</span>
+              <span className="text-[11px] text-slate">JPG · PNG · WEBP</span>
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" hidden onChange={e => pickFile(e.target.files[0])} />
+          </div>
+        </div>
+
+        <button onClick={submit} disabled={busy}
+          className="bg-teal text-white rounded-xl py-2.5 font-bold text-sm shadow hover:bg-teal-light active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          {busy
+            ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg> Saving…</>
+            : <>+ Add / Update Location</>}
+        </button>
+
+        <AnimatePresence>
+          {msg && (
+            <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className={`text-xs font-medium rounded-lg px-3 py-2 ${msg.type === 'ok' ? 'text-teal bg-teal/10 border border-teal/20' : 'text-red-600 bg-red-50 border border-red-200'}`}>
+              {msg.text}
+            </motion.p>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* hidden picker for per-card replace */}
+      <input ref={replaceRef} type="file" accept="image/*" hidden onChange={e => onReplaceFile(e.target.files[0])} />
+
+      {/* Existing locations */}
+      <p className="text-[11px] font-bold uppercase tracking-widest text-slate mb-2">
+        {gender} Locations {loading ? '· loading…' : `· ${locations.length}`}
+      </p>
+      <div className="grid grid-cols-2 xs:grid-cols-3 gap-2.5">
+        {locations.map(l => (
+          <div key={l.folder} className="rounded-xl overflow-hidden border border-border bg-white flex flex-col">
+            <div className="relative aspect-square bg-bg3 flex items-center justify-center overflow-hidden group">
+              {l.has_image
+                ? <img src={`/api/location-image?gender=${gender}&location=${encodeURIComponent(l.folder)}&t=${cacheBust}`}
+                    alt={l.label} className="w-full h-full object-cover" />
+                : <div className="flex flex-col items-center gap-1 text-slate">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <span className="text-[9px] font-medium">No photo</span>
+                  </div>}
+              {/* status dot */}
+              <span className={`absolute top-1.5 left-1.5 w-2 h-2 rounded-full ${l.has_image ? 'bg-teal' : 'bg-amber-400'}`} title={l.has_image ? 'Has photo' : 'Pending'} />
+            </div>
+
+            <div className="px-2 py-1.5 flex-1">
+              <p className="text-[11px] font-semibold text-navy leading-tight line-clamp-2" title={l.label}>{l.label}</p>
+            </div>
+
+            {/* actions */}
+            <div className="flex border-t border-border divide-x divide-border">
+              <button onClick={() => startReplace(l.folder)} title="Replace photo"
+                className="flex-1 py-1.5 flex items-center justify-center text-slate hover:text-teal hover:bg-teal/[0.04] transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </button>
+              <button onClick={() => rename(l.folder, l.label)} title="Rename"
+                className="flex-1 py-1.5 flex items-center justify-center text-slate hover:text-teal hover:bg-teal/[0.04] transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+              <button onClick={() => remove(l.folder, l.label)} title="Delete"
+                className="flex-1 py-1.5 flex items-center justify-center text-slate hover:text-red-600 hover:bg-red-50 transition-colors">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Admin Dashboard ─────────────────────────────────────────────────────────
 function Dashboard({ owner, onLogout }) {
   const stats = [
@@ -163,6 +409,9 @@ function Dashboard({ owner, onLogout }) {
           ))}
         </div>
       </div>
+
+      {/* Manage Locations */}
+      <ManageLocations token={owner.password} />
 
       {/* Quick Links */}
       <div className="bg-white border border-border rounded-2xl shadow-sm p-5 sm:p-6">

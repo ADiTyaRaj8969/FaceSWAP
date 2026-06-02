@@ -4,6 +4,12 @@ Run: python web_app.py
 Then open http://localhost:5000
 """
 import os
+# Load .env before anything reads os.environ (Supabase keys, admin passwords).
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 # Required before importing mediapipe/insightface on some platforms to avoid
 # protobuf C-extension symbol errors.
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
@@ -36,12 +42,27 @@ from core.head_swap import (swap_hair, match_skin_to_source, transfer_glasses,
 from core.hair_transfer import transfer_hair
 from core.blender import laplacian_blend
 from core.quality_checker import compute_quality_score
+from core import supabase_store
 from utils.image_io import resize_keep_aspect
 
 REACT_BUILD   = os.path.join("static", "react")
 LOCATIONS_DIR = "Location"            # Location/Male/<loc>/img  +  Location/Female/<loc>/img
 VALID_GENDERS = {"Male", "Female"}
 _IMG_EXTS     = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+
+# Owner passwords for the Control Panel write actions. These MUST match the
+# OWNERS list in frontend/src/pages/AdminPage.jsx. Override in production via env.
+ADMIN_PASSWORDS = set(filter(None, (
+    os.environ.get("ADMIN_PASSWORD_1", "deepface@admin1"),
+    os.environ.get("ADMIN_PASSWORD_2", "deepface@admin2"),
+)))
+
+
+def _check_admin(req) -> bool:
+    """Owner-only guard for admin endpoints. Password is sent by the logged-in
+    owner (header or form field) and checked against ADMIN_PASSWORDS."""
+    pw = req.headers.get("X-Admin-Token") or req.form.get("admin_token") or ""
+    return pw in ADMIN_PASSWORDS
 
 
 def _clean_location_label(name: str) -> str:
@@ -90,6 +111,40 @@ def _find_location_image(gender: str, location: str):
         if f.lower().endswith(_IMG_EXTS) and os.path.isfile(os.path.join(folder, f)):
             return os.path.join(folder, f)
     return None
+
+
+def _next_location_number(gender: str) -> int:
+    """Highest numeric prefix in the gender folder + 1 (for new locations)."""
+    gender_dir = os.path.join(LOCATIONS_DIR, gender)
+    n = 0
+    if os.path.isdir(gender_dir):
+        for name in os.listdir(gender_dir):
+            m = re.match(r"^\s*(\d+)", name)
+            if m:
+                n = max(n, int(m.group(1)))
+    return n + 1
+
+
+def _resolve_or_create_location(gender: str, location_name: str, create: bool = True):
+    """
+    Find the folder for a location label inside a gender (matched by cleaned
+    label, case-insensitive). Creates '<next-number>. <name>' if missing and
+    create=True. Returns the folder name, or None.
+    """
+    gender_dir = os.path.join(LOCATIONS_DIR, gender)
+    clean = _clean_location_label(location_name)
+    if not clean:
+        return None
+    if os.path.isdir(gender_dir):
+        for name in os.listdir(gender_dir):
+            if os.path.isdir(os.path.join(gender_dir, name)) and \
+               _clean_location_label(name).lower() == clean.lower():
+                return name
+    if not create:
+        return None
+    folder = f"{_next_location_number(gender)}. {clean}"
+    os.makedirs(os.path.join(gender_dir, folder), exist_ok=True)
+    return folder
 
 app = Flask(__name__, static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
@@ -201,7 +256,9 @@ def api_locations():
     gender = (request.args.get("gender") or "").strip().capitalize()
     if gender not in VALID_GENDERS:
         return jsonify({"ok": False, "error": "gender must be Male or Female"}), 400
-    return jsonify({"ok": True, "gender": gender, "locations": _list_locations(gender)})
+    locs = supabase_store.list_locations(gender) if supabase_store.is_enabled() \
+        else _list_locations(gender)
+    return jsonify({"ok": True, "gender": gender, "locations": locs})
 
 
 @app.route("/api/location-image", methods=["GET"])
@@ -209,10 +266,165 @@ def api_location_image():
     """Serve the curated target image for a gender + location (for the preview)."""
     gender   = (request.args.get("gender") or "").strip().capitalize()
     location = (request.args.get("location") or "").strip()
+
+    if supabase_store.is_enabled():
+        data = supabase_store.get_image_bytes(gender, location)
+        if not data:
+            return jsonify({"ok": False, "error": "Image not available yet"}), 404
+        resp = send_file(io.BytesIO(data), mimetype="image/jpeg")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
     path = _find_location_image(gender, location)
     if path is None:
         return jsonify({"ok": False, "error": "Image not available yet"}), 404
-    return send_file(os.path.abspath(path))
+    resp = send_file(os.path.abspath(path))
+    resp.headers["Cache-Control"] = "no-cache"   # always reflect latest upload
+    return resp
+
+
+@app.route("/api/admin/login", methods=["POST"])
+def api_admin_login():
+    """Validate owner credentials server-side (frontend also checks)."""
+    data = request.get_json(silent=True) or {}
+    pw = (data.get("password") or "").strip()
+    return jsonify({"ok": pw in ADMIN_PASSWORDS})
+
+
+@app.route("/api/admin/location", methods=["POST"])
+def api_admin_add_location():
+    """
+    Owner-only: add or update a location image.
+    Form: admin_token, gender (Male|Female), location (display name), image (file).
+    Creates the folder if new, then stores the (re-encoded) image. Becomes
+    visible on the app page immediately.
+    """
+    if not _check_admin(request):
+        return jsonify({"ok": False, "error": "Unauthorised — owner login required."}), 401
+
+    gender = (request.form.get("gender") or "").strip().capitalize()
+    if gender not in VALID_GENDERS:
+        return jsonify({"ok": False, "error": "Gender must be Male or Female."}), 400
+
+    location_name = (request.form.get("location") or "").strip()
+    if not location_name:
+        return jsonify({"ok": False, "error": "Location name is required."}), 400
+    if ".." in location_name or "/" in location_name or "\\" in location_name:
+        return jsonify({"ok": False, "error": "Invalid location name."}), 400
+
+    file = request.files.get("image")
+    if not file or not file.filename:
+        return jsonify({"ok": False, "error": "An image file is required."}), 400
+
+    img = _decode_image(file)
+    if img is None:
+        return jsonify({"ok": False, "error": "Could not read the image file."}), 400
+
+    # Normalised JPEG bytes (strips EXIF, validates the upload).
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    if not ok:
+        return jsonify({"ok": False, "error": "Could not encode the image."}), 500
+    jpeg_bytes = buf.tobytes()
+
+    # ── Supabase mode ─────────────────────────────────────────────────────────
+    if supabase_store.is_enabled():
+        try:
+            res = supabase_store.upsert_location(gender, _clean_location_label(location_name),
+                                                 jpeg_bytes)
+            return jsonify({"ok": True, "gender": gender, **res})
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Supabase store failed: {e}"}), 502
+
+    # ── Local filesystem fallback ─────────────────────────────────────────────
+    folder = _resolve_or_create_location(gender, location_name, create=True)
+    if folder is None:
+        return jsonify({"ok": False, "error": "Could not create the location."}), 500
+    folder_path = os.path.join(LOCATIONS_DIR, gender, folder)
+
+    # Remove any existing image(s) so each location holds exactly one photo.
+    for f in os.listdir(folder_path):
+        if f.lower().endswith(_IMG_EXTS):
+            try:
+                os.remove(os.path.join(folder_path, f))
+            except OSError:
+                pass
+
+    with open(os.path.join(folder_path, "image.jpg"), "wb") as out:
+        out.write(jpeg_bytes)
+
+    return jsonify({"ok": True, "gender": gender, "folder": folder,
+                    "label": _clean_location_label(folder)})
+
+
+@app.route("/api/admin/location/delete", methods=["POST"])
+def api_admin_delete_location():
+    """Owner-only: delete a whole location folder for a gender."""
+    if not _check_admin(request):
+        return jsonify({"ok": False, "error": "Unauthorised — owner login required."}), 401
+
+    data     = request.get_json(silent=True) or request.form
+    gender   = (data.get("gender") or "").strip().capitalize()
+    location = (data.get("location") or "").strip()          # folder name
+    if gender not in VALID_GENDERS or not location:
+        return jsonify({"ok": False, "error": "gender and location are required."}), 400
+    if ".." in location or "/" in location or "\\" in location:
+        return jsonify({"ok": False, "error": "Invalid location."}), 400
+
+    if supabase_store.is_enabled():
+        try:
+            supabase_store.delete_location(gender, location)
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Supabase delete failed: {e}"}), 502
+
+    folder_path = os.path.join(LOCATIONS_DIR, gender, location)
+    if not os.path.isdir(folder_path):
+        return jsonify({"ok": False, "error": "Location not found."}), 404
+
+    import shutil
+    shutil.rmtree(folder_path, ignore_errors=True)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/location/rename", methods=["POST"])
+def api_admin_rename_location():
+    """Owner-only: rename a location (keeps its numeric prefix + its photo)."""
+    if not _check_admin(request):
+        return jsonify({"ok": False, "error": "Unauthorised — owner login required."}), 401
+
+    data     = request.get_json(silent=True) or request.form
+    gender   = (data.get("gender") or "").strip().capitalize()
+    location = (data.get("location") or "").strip()          # current folder name
+    new_name = (data.get("new_name") or "").strip()
+    if gender not in VALID_GENDERS or not location or not new_name:
+        return jsonify({"ok": False, "error": "gender, location and new_name are required."}), 400
+    for v in (location, new_name):
+        if ".." in v or "/" in v or "\\" in v:
+            return jsonify({"ok": False, "error": "Invalid name."}), 400
+
+    if supabase_store.is_enabled():
+        try:
+            res = supabase_store.rename_location(gender, location,
+                                                _clean_location_label(new_name))
+            return jsonify({"ok": True, **res})
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 502
+
+    gender_dir = os.path.join(LOCATIONS_DIR, gender)
+    src = os.path.join(gender_dir, location)
+    if not os.path.isdir(src):
+        return jsonify({"ok": False, "error": "Location not found."}), 404
+
+    # Keep the existing numeric prefix if there was one.
+    m = re.match(r"^\s*(\d+)\.", location)
+    prefix = f"{m.group(1)}. " if m else ""
+    new_folder = f"{prefix}{_clean_location_label(new_name)}"
+    dst = os.path.join(gender_dir, new_folder)
+    if os.path.abspath(src) != os.path.abspath(dst):
+        if os.path.exists(dst):
+            return jsonify({"ok": False, "error": "A location with that name already exists."}), 409
+        os.rename(src, dst)
+    return jsonify({"ok": True, "folder": new_folder, "label": _clean_location_label(new_folder)})
 
 
 @app.route("/api/detect", methods=["POST"])
@@ -279,13 +491,22 @@ def api_swap():
             if gender not in VALID_GENDERS or not location:
                 return jsonify({"ok": False, "error":
                     "Please choose a gender (Male/Female) and a location."}), 400
-            tgt_path = _find_location_image(gender, location)
-            if tgt_path is None:
-                return jsonify({"ok": False, "error":
-                    f"No photo is available yet for {gender} · "
-                    f"{_clean_location_label(location)}. Please pick another location."}), 404
-            with open(tgt_path, "rb") as _tf:
-                target = _decode_image(_tf)
+
+            if supabase_store.is_enabled():
+                data = supabase_store.get_image_bytes(gender, location)
+                if not data:
+                    return jsonify({"ok": False, "error":
+                        f"No photo is available yet for {gender} · "
+                        f"{_clean_location_label(location)}. Please pick another location."}), 404
+                target = _decode_image(io.BytesIO(data))
+            else:
+                tgt_path = _find_location_image(gender, location)
+                if tgt_path is None:
+                    return jsonify({"ok": False, "error":
+                        f"No photo is available yet for {gender} · "
+                        f"{_clean_location_label(location)}. Please pick another location."}), 404
+                with open(tgt_path, "rb") as _tf:
+                    target = _decode_image(_tf)
 
         if source is None or target is None:
             return jsonify({"ok": False, "error": "Could not decode one or both images"}), 400
