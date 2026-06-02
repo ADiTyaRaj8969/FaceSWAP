@@ -8,6 +8,7 @@ import os
 # protobuf C-extension symbol errors.
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 import io
+import re
 import base64
 import traceback
 import mimetypes
@@ -22,7 +23,7 @@ mimetypes.add_type("application/json", ".json")
 import cv2
 import cv2.data
 import numpy as np
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 from PIL import Image, ImageOps
 
@@ -37,7 +38,58 @@ from core.blender import laplacian_blend
 from core.quality_checker import compute_quality_score
 from utils.image_io import resize_keep_aspect
 
-REACT_BUILD = os.path.join("static", "react")
+REACT_BUILD   = os.path.join("static", "react")
+LOCATIONS_DIR = "Location"            # Location/Male/<loc>/img  +  Location/Female/<loc>/img
+VALID_GENDERS = {"Male", "Female"}
+_IMG_EXTS     = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+
+
+def _clean_location_label(name: str) -> str:
+    """Strip a leading numeric prefix like '1. ' for display."""
+    return re.sub(r"^\s*\d+\.\s*", "", name).strip()
+
+
+def _list_locations(gender: str) -> list:
+    """
+    Return [{folder, label}] for every location sub-folder under the gender,
+    sorted by the numeric prefix. Folders are listed even if they have no image
+    yet (the picker shows them; the swap call validates the image exists).
+    """
+    if gender not in VALID_GENDERS:
+        return []
+    gender_dir = os.path.join(LOCATIONS_DIR, gender)
+    if not os.path.isdir(gender_dir):
+        return []
+
+    def sort_key(n):
+        m = re.match(r"^\s*(\d+)", n)
+        return (int(m.group(1)) if m else 9999, n.lower())
+
+    out = []
+    for name in sorted(os.listdir(gender_dir), key=sort_key):
+        if os.path.isdir(os.path.join(gender_dir, name)):
+            out.append({"folder": name, "label": _clean_location_label(name),
+                        "has_image": _find_location_image(gender, name) is not None})
+    return out
+
+
+def _find_location_image(gender: str, location: str):
+    """
+    Resolve the target image path inside Location/<gender>/<location>/.
+    Returns the first image file found, or None. Guards against path traversal.
+    """
+    if gender not in VALID_GENDERS:
+        return None
+    # Reject anything that could escape the locations dir.
+    if not location or ".." in location or "/" in location or "\\" in location:
+        return None
+    folder = os.path.join(LOCATIONS_DIR, gender, location)
+    if not os.path.isdir(folder):
+        return None
+    for f in sorted(os.listdir(folder)):
+        if f.lower().endswith(_IMG_EXTS) and os.path.isfile(os.path.join(folder, f)):
+            return os.path.join(folder, f)
+    return None
 
 app = Flask(__name__, static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
@@ -143,6 +195,26 @@ def serve_react(path):
     return send_from_directory(react_dir, "index.html")
 
 
+@app.route("/api/locations", methods=["GET"])
+def api_locations():
+    """List the curated destination locations for a gender (Male|Female)."""
+    gender = (request.args.get("gender") or "").strip().capitalize()
+    if gender not in VALID_GENDERS:
+        return jsonify({"ok": False, "error": "gender must be Male or Female"}), 400
+    return jsonify({"ok": True, "gender": gender, "locations": _list_locations(gender)})
+
+
+@app.route("/api/location-image", methods=["GET"])
+def api_location_image():
+    """Serve the curated target image for a gender + location (for the preview)."""
+    gender   = (request.args.get("gender") or "").strip().capitalize()
+    location = (request.args.get("location") or "").strip()
+    path = _find_location_image(gender, location)
+    if path is None:
+        return jsonify({"ok": False, "error": "Image not available yet"}), 404
+    return send_file(os.path.abspath(path))
+
+
 @app.route("/api/detect", methods=["POST"])
 def api_detect():
     """Quick face-detection check. Returns count + thumbnail with boxes drawn."""
@@ -193,16 +265,32 @@ def api_swap():
         else:
             return jsonify({"ok": False, "error": "No source image provided"}), 400
 
-        # -- decode target ----------------------------------------------------
+        # -- resolve target ---------------------------------------------------
+        # The user no longer uploads a target. They pick a gender + location and
+        # we use the corresponding curated image from Location/<gender>/<location>/.
+        # (A direct target upload is still accepted as an admin override.)
         if "target_file" in request.files and request.files["target_file"].filename:
             target = _decode_image(request.files["target_file"])
         elif request.form.get("target_b64"):
             target = _decode_image(request.form["target_b64"])
         else:
-            return jsonify({"ok": False, "error": "No target image provided"}), 400
+            gender   = (request.form.get("gender") or "").strip().capitalize()
+            location = (request.form.get("location") or "").strip()
+            if gender not in VALID_GENDERS or not location:
+                return jsonify({"ok": False, "error":
+                    "Please choose a gender (Male/Female) and a location."}), 400
+            tgt_path = _find_location_image(gender, location)
+            if tgt_path is None:
+                return jsonify({"ok": False, "error":
+                    f"No photo is available yet for {gender} · "
+                    f"{_clean_location_label(location)}. Please pick another location."}), 404
+            with open(tgt_path, "rb") as _tf:
+                target = _decode_image(_tf)
 
         if source is None or target is None:
             return jsonify({"ok": False, "error": "Could not decode one or both images"}), 400
+
+        user_name = (request.form.get("name") or "").strip()
 
         # -- resize -----------------------------------------------------------
         # 1024 working resolution is plenty: InsightFace swaps at 128px and
@@ -369,6 +457,7 @@ def api_swap():
             "src_tone": src_tone,
             "tgt_tone": tgt_tone,
             "warnings": warnings,
+            "name": user_name,
         })
 
     except Exception as e:
