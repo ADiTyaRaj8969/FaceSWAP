@@ -273,9 +273,9 @@ export default function AppPage() {
   };
 
   return (
-    <div className="bg-bg font-sans text-navy">
-      
-      {/* Main Content Area (Fills at least 1 screen height to push footer down) */}
+    <div className="bg-bg font-sans text-navy overflow-x-hidden">
+
+      {/* Main Content Area */}
       <div className="min-h-[100dvh] relative flex flex-col">
         {/* Floating Home Button (No Navbar) */}
         <button onClick={() => navigate('/')}
@@ -287,11 +287,11 @@ export default function AppPage() {
           Home
         </button>
 
-        <main className="flex-1 w-full max-w-5xl mx-auto px-4 sm:px-6 py-20 sm:py-24 flex flex-col gap-5 sm:gap-7">
+        <main className="flex-1 w-full max-w-5xl mx-auto px-3 sm:px-6 pt-16 sm:pt-20 pb-10 sm:pb-14 flex flex-col gap-4 sm:gap-6">
 
 
         {/* INPUT PANELS */}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_32px_1fr] items-start gap-4 md:gap-0">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_28px_1fr] items-start gap-3 sm:gap-0">
 
           {/* SOURCE */}
           <SpotlightCard className="bg-white border border-border shadow-sm rounded-2xl p-4 sm:p-6 flex flex-col gap-4">
@@ -354,12 +354,13 @@ export default function AppPage() {
             )}
           </SpotlightCard>
 
-          {/* arrow */}
-          <div className="hidden md:flex items-center justify-center pt-24 text-border2">
+          {/* arrow — shown on sm+ */}
+          <div className="hidden sm:flex items-center justify-center pt-20 text-border2">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
           </div>
 
-          <div className="md:hidden flex items-center gap-3">
+          {/* divider — mobile only */}
+          <div className="sm:hidden flex items-center gap-3">
             <div className="flex-1 h-px bg-border" />
             <span className="text-slate text-xs font-bold tracking-widest">THEN</span>
             <div className="flex-1 h-px bg-border" />
@@ -452,7 +453,7 @@ export default function AppPage() {
               <h2 className="text-lg sm:text-xl font-extrabold text-navy text-center">Results</h2>
 
               {/* 3-panel comparison */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
+              <div className="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3">
                 {[
                   { label: 'Source',  src: srcFile ? URL.createObjectURL(srcFile) : srcB64 },
                   { label: 'Target',  src: tgtFile ? URL.createObjectURL(tgtFile) : tgtB64 },

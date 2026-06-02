@@ -6,12 +6,13 @@
 
 body {
   margin: 0;
-  background: #ffffff; /* Pure white as requested */
-  color: #0f172a; /* navy */
+  background: #ffffff;
+  color: #0f172a;
   font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 #root { min-height: 100vh; }
