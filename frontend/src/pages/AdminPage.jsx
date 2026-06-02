@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged } from '../firebase';
+import { auth, googleProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged } from '../firebase';
 
 // ═══ AUTHORISED OWNER EMAILS ═══════════════════════════════════════════════════
 // Only these Google accounts can open the Control Panel. Anyone else who signs
@@ -39,8 +39,19 @@ function GoogleLogin({ denied }) {
       }
       // allowed → onAuthStateChanged in the parent sets the owner + shows dashboard
     } catch (e) {
-      if (e?.code !== 'auth/popup-closed-by-user' && e?.code !== 'auth/cancelled-popup-request')
-        setError('Sign-in failed. Please try again.');
+      const code = e?.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        // user closed the popup — ignore
+      } else if (code === 'auth/unauthorized-domain') {
+        setError('This site\'s domain isn\'t authorised in Firebase. Add it under '
+               + 'Firebase Console → Authentication → Settings → Authorized domains.');
+      } else if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') {
+        // Popup blocked (or COOP) — fall back to full-page redirect sign-in.
+        try { await signInWithRedirect(auth, googleProvider); return; }
+        catch { setError('Sign-in failed (popup blocked). Allow popups and retry.'); }
+      } else {
+        setError(`Sign-in failed: ${code || e?.message || 'unknown error'}`);
+      }
     } finally {
       setLoading(false);
     }

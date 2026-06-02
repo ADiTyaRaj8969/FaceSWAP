@@ -100,8 +100,6 @@ const STAGES = [
   [85,'Applying Laplacian blend...'], [93,'Harmonising colours...'], [98,'Quality metrics...'],
 ];
 
-const locImgUrl = (gender, folder) =>
-  `/api/location-image?gender=${encodeURIComponent(gender)}&location=${encodeURIComponent(folder)}`;
 
 // Personalised, gently-motivating message shown with the result — uses the
 // person's name + the location they chose to picture themselves on campus.
@@ -137,7 +135,6 @@ export default function AppPage() {
   const [locations,  setLocations]  = useState([]);
   const [location,   setLocation]   = useState('');     // folder name
   const [loadingLocs, setLoadingLocs] = useState(false);
-  const [previewOk,  setPreviewOk]  = useState(true);
 
   // camera (source only)
   const videoRef  = useRef(null);
@@ -164,8 +161,6 @@ export default function AppPage() {
       .finally(() => { if (!cancelled) setLoadingLocs(false); });
     return () => { cancelled = true; };
   }, [gender]);
-
-  useEffect(() => { setPreviewOk(true); }, [location, gender]);
 
   // ── source face detection ────────────────────────────────────────────────
   const detectFaces = async (file, b64) => {
@@ -451,23 +446,15 @@ export default function AppPage() {
                 </div>
               </div>
 
-              {/* location preview */}
+              {/* selected confirmation (no backend image preview) */}
               {location && (
-                <div className="relative rounded-xl overflow-hidden border border-border bg-bg3">
-                  {previewOk ? (
-                    <img
-                      src={locImgUrl(gender, location)} alt={locationLabel}
-                      onError={() => setPreviewOk(false)}
-                      className="w-full max-h-72 sm:max-h-96 object-contain block mx-auto bg-white"
-                    />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate">
-                      <svg className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                      <span className="text-xs font-medium">Image coming soon</span>
-                    </div>
-                  )}
-                  <div className="px-3 py-2 bg-white border-t border-border text-xs text-navy-light font-medium text-center">
-                    {gender} · {locationLabel}
+                <div className="flex items-center gap-2.5 bg-teal/5 border border-teal/20 rounded-xl px-4 py-3">
+                  <svg className="w-5 h-5 text-teal shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+                  </svg>
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-sm font-bold text-navy">{locationLabel}</span>
+                    <span className="text-[11px] text-slate font-medium">Selected · we'll place you here</span>
                   </div>
                 </div>
               )}
@@ -495,8 +482,8 @@ export default function AppPage() {
             {result && (
               <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                 className="flex flex-col gap-5 sm:gap-6 mt-4 pt-8 border-t border-border">
-                <h2 className="text-lg sm:text-xl font-extrabold text-navy text-center">
-                  {result.name ? `${result.name}'s Result` : 'Results'}
+                <h2 className="text-xl sm:text-2xl font-extrabold text-navy text-center">
+                  {result.name ? `${result.name}, here you are! ✨` : 'Here you are! ✨'}
                 </h2>
 
                 {/* Personalised motivational message */}
@@ -518,51 +505,15 @@ export default function AppPage() {
                   </div>
                 </motion.div>
 
-                {/* 3-panel comparison */}
-                <div className="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2 sm:gap-3">
-                  {[
-                    { label: 'Your Photo', src: srcFile ? URL.createObjectURL(srcFile) : srcB64 },
-                    { label: 'Location',   src: locImgUrl(gender, location) },
-                    { label: 'Result',     src: result.result_image, highlight: true },
-                  ].map(p => (
-                    <TiltedCard key={p.label}
-                      className={`bg-white border shadow-sm rounded-2xl overflow-hidden ${p.highlight ? 'border-teal ring-2 ring-teal/20' : 'border-border'}`}>
-                      <p className={`px-3 sm:px-4 py-2.5 text-xs font-bold uppercase tracking-widest bg-bg3 border-b border-border ${p.highlight ? 'text-teal' : 'text-slate'}`}>
-                        {p.label}{p.highlight ? ' ✓' : ''}
-                      </p>
-                      <img src={p.src} alt={p.label} className="w-full max-h-56 sm:max-h-80 object-contain bg-bg" />
-                    </TiltedCard>
-                  ))}
-                </div>
-
-                {/* quality warnings */}
-                {result.warnings?.length > 0 && (
-                  <div className="flex flex-col gap-1.5">
-                    {result.warnings.map((w, i) => (
-                      <div key={i} className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium px-3 py-2 rounded-lg">
-                        <svg className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                        </svg>
-                        {w}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* metrics */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-                  {[
-                    { label: 'Alignment',   val: result.quality?.alignment?.toFixed(1) + '/100' },
-                    { label: 'Blend',       val: result.quality?.blend?.toFixed(1) + '/100' },
-                    { label: 'Colour dE',   val: result.delta_e?.toFixed(2) },
-                    { label: 'Naturalness', val: result.quality?.naturalness?.toFixed(1) + '/100' },
-                  ].map(m => (
-                    <div key={m.label} className="bg-white border border-border shadow-sm rounded-xl p-3 sm:p-4 flex flex-col items-center gap-1 text-center">
-                      <span className="text-xl sm:text-2xl font-extrabold text-teal">{m.val ?? '-'}</span>
-                      <span className="text-[9px] sm:text-[10px] text-slate uppercase tracking-widest font-bold leading-tight">{m.label}</span>
-                    </div>
-                  ))}
+                {/* result only */}
+                <div className="flex justify-center">
+                  <TiltedCard className="bg-white border border-teal ring-2 ring-teal/20 shadow-lg shadow-teal/10 rounded-2xl overflow-hidden max-w-md w-full">
+                    <p className="px-4 py-2.5 text-xs font-bold uppercase tracking-widest bg-teal/5 border-b border-teal/20 text-teal text-center">
+                      ✨ Your Campus Look
+                    </p>
+                    <img src={result.result_image} alt="Your campus look"
+                      className="w-full object-contain bg-bg" />
+                  </TiltedCard>
                 </div>
 
                 {/* download row */}

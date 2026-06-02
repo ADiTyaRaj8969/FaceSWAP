@@ -41,14 +41,17 @@ def _get_insightface():
     if _insightface_failed:
         return None                      # previously errored — don't retry
 
-    if not _buffalo_ready():
-        return None                      # models not downloaded yet — retry next call
-
+    # NOTE: we no longer short-circuit when buffalo_l is missing. FaceAnalysis()
+    # auto-downloads the model on first use, so this works on a fresh machine
+    # (previously it returned None forever and silently fell back to a crude
+    # Haar-cascade paste — no real swap, no head swap, no glasses).
     try:
         import insightface
+        if not _buffalo_ready():
+            print("[detector] buffalo_l not found — downloading (~300 MB, one-time)…")
         _insightface_app = insightface.app.FaceAnalysis(
             name="buffalo_l",
-            providers=_ORT_PROVIDERS
+            providers=_ORT_PROVIDERS,
         )
         _insightface_app.prepare(ctx_id=0, det_size=(640, 640))
         print("[detector] InsightFace buffalo_l loaded OK")

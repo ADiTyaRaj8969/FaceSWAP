@@ -648,7 +648,7 @@ def api_swap():
         )
 
         # 4. If we only did a FACE swap (head transplant unavailable), add the
-        #    source's hair + glasses separately — the head swap already has both.
+        #    source's hair separately — the head swap already carries the hair.
         if not head_done:
             swap_hair_flag = request.form.get("swap_hair", "1") in ("1", "true", "on")
             full_head      = request.form.get("full_head", "0") in ("1", "true", "on")
@@ -666,8 +666,15 @@ def api_swap():
                     swapped = swap_hair(swapped, hf_padded, swapped, include_face=False)
                 else:
                     swapped = swap_hair(swapped, source, target, include_face=full_head)
-            if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
+
+        # 4b. Carry the SOURCE's glasses onto the result — for BOTH paths. The
+        #     head-swap parser sometimes misses thin spectacle frames, so always
+        #     re-apply. No-op if the source isn't wearing glasses.
+        if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
+            try:
                 swapped = transfer_glasses(swapped, source)
+            except Exception as e:
+                print(f"[swap] glasses transfer error: {e}")
 
         # 5. Laplacian pyramid blend over the face boundary — multi-scale so
         #    high-frequency hair/skin detail and low-frequency colour transitions
