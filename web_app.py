@@ -708,14 +708,14 @@ def api_swap():
             (src_tone["b"] - tgt_tone["b"]) ** 2
         ) ** 0.5
 
-        # Pipeline order (as requested): HEAD swap -> FACE swap -> HAIR swap.
+        # Default pipeline = the clean, high-quality FACE swap (this is what
+        # produced the good results). HEAD swap and HAIR swap are OPT-IN only
+        # (?head_swap=1 / ?swap_hair=1) because, with the current models, they
+        # degrade the clean face swap more often than they help.
         #
-        # 1. HEAD SWAP — transplant the SOURCE head shape + hair onto the target
-        #    when the pose allows. If it can't, we keep the plain target as the
-        #    base. (Previously, a weak head-swap result short-circuited the face
-        #    swap, leaving a poor result.)
+        # 1. (optional) HEAD SWAP — transplant the source head shape+hair.
         base = target
-        if request.form.get("head_swap", "1") in ("1", "true", "on"):
+        if request.form.get("head_swap", "0") in ("1", "true", "on"):
             try:
                 hs = full_head_swap(source, target)
                 if hs is not None:
@@ -723,9 +723,8 @@ def api_swap():
             except Exception as e:
                 print(f"[swap] head swap error: {e}")
 
-        # 2. FACE SWAP — ALWAYS run. Lays the crisp SOURCE identity over the main
-        #    face (refines the soft head-swap warp, or swaps onto the target).
-        #    Only the main subject is swapped, never background/poster faces.
+        # 2. FACE SWAP — the main event. Source identity onto the main face only
+        #    (background/poster faces are never swapped).
         swapped = swap_face_insightface(source, base)
 
         # 3. GFPGAN face restoration — recovers detail lost in the 128px swap.
@@ -737,12 +736,9 @@ def api_swap():
             swapped, source, faces_src[0], faces_tgt[0], strength=0.75
         )
 
-        # 5. HAIR SWAP — transfer the SOURCE's real hairstyle. On GPU this uses
-        #    HairFastGAN (StyleGAN) for a photoreal result: it returns an FFHQ-
-        #    aligned portrait wearing the source hair, which we composite back
-        #    onto the swap via the hair-region mask. Falls back to the BiSeNet
-        #    warp when HairFastGAN isn't available (CPU / no weights / no token).
-        if request.form.get("swap_hair", "1") in ("1", "true", "on"):
+        # 5. (optional) HAIR SWAP — only when explicitly requested. HairFastGAN
+        #    on GPU, else the BiSeNet warp. Off by default (can mangle the hair).
+        if request.form.get("swap_hair", "0") in ("1", "true", "on"):
             hf_portrait = None
             try:
                 hf_portrait = transfer_hair(face_bgr=swapped, shape_bgr=source,
