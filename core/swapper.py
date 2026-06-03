@@ -62,17 +62,27 @@ def swap_face_insightface(
             print(f"[swapper] faces not detected: src={len(src_faces)} tgt={len(tgt_faces)}")
             return _fallback_swap(source, target)
 
+        area = lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
         # Use the largest source face (most frontal/clear) for the best identity.
-        src_face = max(src_faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+        src_face = max(src_faces, key=area)
+
+        # Swap ONLY the main subject — the largest target face. Location photos
+        # often contain incidental faces (posters, notice boards, reflections);
+        # swapping every detected face pasted the source onto those too, which
+        # produced the "mess". We also keep any genuinely large secondary face
+        # (>= 45% of the main face's area) so real two-person shots still work,
+        # but exclude the small background faces.
+        main_area = area(max(tgt_faces, key=area))
+        targets = [f for f in tgt_faces if area(f) >= 0.45 * main_area]
 
         result = target.copy()
-        for tgt_face in tgt_faces:
+        for tgt_face in targets:
             result = swapper.get(result, tgt_face, src_face, paste_back=True)
             if preserve_glasses:
                 result = _restore_glasses_region(result, target, tgt_face)
 
-        # Sharpen the swapped face region to recover detail lost in 128x128 internal resize
-        result = _sharpen_face_region(result, tgt_faces)
+        # Sharpen only the swapped face region(s).
+        result = _sharpen_face_region(result, targets)
         return result
     except Exception as e:
         print(f"[swapper] swap error: {e}")
