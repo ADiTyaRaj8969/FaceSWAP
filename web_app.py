@@ -733,7 +733,7 @@ def api_swap():
         # 4. SOURCE complexion across face+neck so the swapped face doesn't read
         #    lighter/darker than the body. 0.75 = matched but not over-tinted.
         swapped = match_skin_to_source(
-            swapped, source, faces_src[0], faces_tgt[0], strength=0.75
+            swapped, source, faces_src[0], faces_tgt[0], strength=0.85
         )
 
         # 5. (optional) HAIR SWAP — only when explicitly requested. HairFastGAN
