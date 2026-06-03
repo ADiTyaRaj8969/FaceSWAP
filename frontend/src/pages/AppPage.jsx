@@ -101,15 +101,15 @@ function ImagePreview({ file, b64, onClear, infoEl }) {
   );
 }
 
-// Friendly, non-technical loading messages (no internal pipeline jargon).
+// Motivational loading messages — gently nudge admission while the swap runs.
 const STAGES = [
-  [12, 'Analysing your photo...'],
-  [28, 'Preparing your campus look...'],
-  [45, 'Placing you in the scene...'],
-  [62, 'Blending everything naturally...'],
-  [78, 'Enhancing the details...'],
-  [90, 'Adding the final touches...'],
-  [97, 'Almost ready...'],
+  [12, 'Great journeys begin at Marwadi University...'],
+  [26, 'Picture yourself on this campus...'],
+  [42, 'Where your ambition finds its home...'],
+  [58, 'Your future is taking shape...'],
+  [72, 'Every great career starts somewhere...'],
+  [86, 'This could be your everyday view...'],
+  [96, 'Get ready to meet your future self...'],
 ];
 
 
