@@ -1,0 +1,50 @@
+# Dockerfile.gpu — GPU build for Hugging Face Pro GPU Space (or any CUDA host).
+# Base: CUDA 12.4 runtime + cuDNN 9 (what onnxruntime-gpu 1.19 needs).
+# To use on HF: switch the Space to GPU hardware and set this as the Dockerfile.
+
+# ── Stage 1: build the React frontend ────────────────────────────────────────
+FROM node:20-slim AS frontend-builder
+WORKDIR /app
+COPY frontend/package*.json frontend/
+RUN cd frontend && npm ci --silent
+COPY frontend/ frontend/
+RUN mkdir -p static/react && cd frontend && npm run build
+
+
+# ── Stage 2: CUDA 12 + cuDNN 9 Python runtime ────────────────────────────────
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.10 python3-pip python3.10-dev \
+        build-essential cmake \
+        libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 \
+        wget git \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Step 1: torch + torchvision CUDA 12.1 wheels (separate index)
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cu121 \
+    torch==2.3.0+cu121 torchvision==0.18.0+cu121
+
+# Step 2: the rest (PyPI), including onnxruntime-gpu
+COPY requirements-gpu.txt .
+RUN pip install --no-cache-dir -r requirements-gpu.txt
+
+# React build from stage 1
+COPY --from=frontend-builder /app/static/react ./static/react
+
+# App source
+COPY . .
+RUN mkdir -p models uploads/temp outputs/results
+
+ENV PORT=7860
+EXPOSE 7860
+
+# Fix CRLF (Windows -> Linux) and make executable
+RUN sed -i 's/\r$//' startup.sh && chmod +x startup.sh
+
+CMD ["./startup.sh"]

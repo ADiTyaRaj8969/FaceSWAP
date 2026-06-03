@@ -1,0 +1,38 @@
+# requirements-gpu.txt  (CUDA 12 GPU deployment — HF Pro GPU Space / CUDA machine)
+# Use with Dockerfile.gpu (CUDA 12 + cuDNN 9 base). torch + onnxruntime-gpu are
+# the GPU swap-ins; everything else matches requirements-deploy.txt.
+#
+# NOTE: torch/torchvision cu121 wheels are installed separately in Dockerfile.gpu
+#       via the pytorch cu121 index (kept out of this file to avoid index clashes).
+
+# Core web
+flask==3.0.3
+flask-cors==4.0.1
+
+# Hosted HairFastGAN client (opt-in, high-quality hair transfer)
+gradio_client>=1.3.0,<2.0.0
+
+# Image processing
+opencv-python-headless==4.9.0.80
+numpy==1.26.4
+Pillow==10.3.0
+scipy==1.13.0
+scikit-image==0.23.2
+
+# Face detection & landmarks (GPU)
+insightface==0.7.3
+onnxruntime-gpu==1.19.2          # CUDA 12 + cuDNN 9 — runs InsightFace on GPU
+mediapipe==0.10.14
+
+# Face restoration + super-resolution (GPU via torch CUDA)
+basicsr==1.4.2
+facexlib==0.3.0
+gfpgan==1.3.8
+realesrgan==0.3.0
+
+# Utils
+python-dotenv==1.0.1
+requests==2.32.2
+tqdm==4.66.4
+pyyaml==6.0.1
+protobuf>=4.25.3,<6.0

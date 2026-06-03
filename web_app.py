@@ -648,11 +648,14 @@ def api_swap():
         user_name = (request.form.get("name") or "").strip()
 
         # -- resize -----------------------------------------------------------
-        # 1024 working resolution is plenty: InsightFace swaps at 128px and
-        # GFPGAN restores on 512px face crops, so a larger canvas only wastes
-        # time. The 4x RealESRGAN upscale at the end takes this to ~4K.
-        source = resize_keep_aspect(source, 1024)
-        target = resize_keep_aspect(target, 1024)
+        # Working resolution: 1536 on GPU (sharper composite + better landmarks;
+        # the RTX-class card handles it easily) and 1024 on CPU to stay fast.
+        # InsightFace still swaps at 128px and GFPGAN restores 512px crops; the
+        # larger canvas mainly helps the final blend + the RealESRGAN 4x upscale.
+        from core.super_res import _device as _sr_device
+        _work_res = 1536 if _sr_device() == "cuda" else 1024
+        source = resize_keep_aspect(source, _work_res)
+        target = resize_keep_aspect(target, _work_res)
 
         # -- enhance inputs (upscale small + GFPGAN restore) so detail isn't
         #    lost through the pipeline; the output is enhanced again at the end.
