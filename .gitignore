@@ -69,3 +69,10 @@ Location/**/*.WEBP
 backend.log
 resp.txt
 _diag_*.py
+
+# batch test harness — generated outputs + user-provided faces (not committed)
+tests/output/
+tests/faces/**/*.jpg
+tests/faces/**/*.jpeg
+tests/faces/**/*.png
+tests/faces/**/*.webp
