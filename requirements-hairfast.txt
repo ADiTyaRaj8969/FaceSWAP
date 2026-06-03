@@ -1,0 +1,17 @@
+# requirements-hairfast.txt — extra deps for LOCAL GPU HairFastGAN hair transfer.
+# Install on a Windows + NVIDIA GPU machine after running scripts/setup_hairfast.py:
+#     pip install -r requirements-hairfast.txt
+#
+# HairFastGAN runs on the local GPU only (Windows + VS Build Tools + CUDA). On the
+# HF GPU Space it uses the hosted HairFastGAN Space instead (set HF_TOKEN), so
+# these are NOT needed in the Docker image.
+
+clip-anytorch        # provides `import clip` (openai-CLIP compatible, from PyPI)
+face_alignment
+lpips
+kornia
+gdown
+dill
+addict
+ftfy
+dlib                 # compiles from source (needs CMake + VS C++ build tools)

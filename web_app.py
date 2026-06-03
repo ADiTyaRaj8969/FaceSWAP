@@ -39,6 +39,7 @@ from core.skin_tone import analyze_skin_tone
 from core.super_res import restore_faces, upscale_image
 from core.head_swap import (swap_hair, match_skin_to_source, transfer_glasses,
                             full_head_swap)
+from core.hair_transfer import transfer_hair
 from core.blender import laplacian_blend
 from core.quality_checker import compute_quality_score
 from core import supabase_store
@@ -730,12 +731,28 @@ def api_swap():
             swapped, source, faces_src[0], faces_tgt[0], strength=0.75
         )
 
-        # 5. HAIR SWAP — bring the source's hair across (no-op if it can't fit).
+        # 5. HAIR SWAP — transfer the SOURCE's real hairstyle. On GPU this uses
+        #    HairFastGAN (StyleGAN) for a photoreal result: it returns an FFHQ-
+        #    aligned portrait wearing the source hair, which we composite back
+        #    onto the swap via the hair-region mask. Falls back to the BiSeNet
+        #    warp when HairFastGAN isn't available (CPU / no weights / no token).
         if request.form.get("swap_hair", "1") in ("1", "true", "on"):
+            hf_portrait = None
             try:
-                swapped = swap_hair(swapped, source, target, include_face=False)
+                hf_portrait = transfer_hair(face_bgr=swapped, shape_bgr=source,
+                                            color_bgr=source)
             except Exception as e:
-                print(f"[swap] hair swap error: {e}")
+                print(f"[swap] HairFastGAN error: {e}")
+            try:
+                if hf_portrait is not None:
+                    pad = int(max(hf_portrait.shape[:2]) * 0.4)
+                    hf_padded = cv2.copyMakeBorder(hf_portrait, pad, pad, pad, pad,
+                                                   cv2.BORDER_CONSTANT, value=(127, 127, 127))
+                    swapped = swap_hair(swapped, hf_padded, swapped, include_face=False)
+                else:
+                    swapped = swap_hair(swapped, source, target, include_face=False)
+            except Exception as e:
+                print(f"[swap] hair compose error: {e}")
 
         # 6. Glasses (no-op if the source isn't wearing any).
         if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
