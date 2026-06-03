@@ -59,19 +59,31 @@ def _image_path(gender: str, name: str) -> str:
 # ── locations table ───────────────────────────────────────────────────────────
 
 def list_locations(gender: str) -> list:
-    """[{folder, label, has_image}] for a gender, ordered by sort_order."""
-    try:
+    """
+    [{folder, label, has_image, message}] for a gender, ordered by sort_order.
+    Resilient to the `message` column not existing yet (older schema): falls
+    back to a select without it instead of returning nothing.
+    """
+    def _query(select):
         r = requests.get(
             f"{SUPABASE_URL}/rest/v1/locations",
             headers=_rest_headers(),
             params={"gender": f"eq.{gender}", "order": "sort_order.asc,name.asc",
-                    "select": "name,image_path,sort_order,message"},
+                    "select": select},
             timeout=_TIMEOUT,
         )
         r.raise_for_status()
+        return r.json()
+
+    try:
+        try:
+            rows = _query("name,image_path,sort_order,message")
+        except Exception:
+            # `message` column missing (schema not migrated) — retry without it.
+            rows = _query("name,image_path,sort_order")
         return [{"folder": row["name"], "label": row["name"],
                  "has_image": bool(row.get("image_path")),
-                 "message": row.get("message") or ""} for row in r.json()]
+                 "message": row.get("message") or ""} for row in rows]
     except Exception as e:
         print(f"[supabase] list_locations failed: {e}")
         return []
