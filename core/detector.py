@@ -98,6 +98,57 @@ def _get_insightface():
     return _insightface_app
 
 
+def align_face_upright(image: np.ndarray, max_roll: float = 3.0) -> np.ndarray:
+    """
+    De-roll a (possibly tilted) photo so the face's eyes are horizontal.
+
+    Why: InsightFace's detector misses faces rolled more than ~15-20 deg, so a
+    tilted selfie silently falls back to a crude paste. We:
+      1. try to detect the face; if that fails (heavy tilt), brute-force rotate
+         the image through candidate angles until a face is found;
+      2. measure the eye-line angle from the 5 keypoints and rotate the whole
+         image so the eyes are level.
+    The swapper then aligns this upright source to the target's pose as usual.
+    Returns the original image unchanged if no face can be found.
+    """
+    import math
+    app = _get_insightface()
+    if app is None:
+        return image
+
+    def _eye_angle(face):
+        le, re = face.kps[0], face.kps[1]      # left eye, right eye
+        return math.degrees(math.atan2(float(re[1] - le[1]), float(re[0] - le[0])))
+
+    def _largest(faces):
+        return max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+
+    h, w = image.shape[:2]
+    cx, cy = w / 2.0, h / 2.0
+
+    faces = app.get(image)
+    base_angle = 0.0
+    if not faces:
+        # Heavy tilt: rotate the image to bring the face into the detector's range.
+        for ang in (15, -15, 25, -25, 35, -35, 45, -45, 10, -10, 20, -20):
+            M = cv2.getRotationMatrix2D((cx, cy), ang, 1.0)
+            rot = cv2.warpAffine(image, M, (w, h), borderValue=(255, 255, 255))
+            f = app.get(rot)
+            if f:
+                faces = f
+                base_angle = ang
+                break
+    if not faces:
+        return image
+
+    roll = _eye_angle(_largest(faces))         # residual roll after base rotation
+    total = base_angle + roll
+    if abs(total) < max_roll:
+        return image                           # already upright enough
+    M = cv2.getRotationMatrix2D((cx, cy), total, 1.0)
+    return cv2.warpAffine(image, M, (w, h), borderValue=(255, 255, 255))
+
+
 def _clahe_enhance(image: np.ndarray) -> np.ndarray:
     """
     Boost contrast with CLAHE on the L channel so face detectors can find

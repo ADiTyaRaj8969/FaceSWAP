@@ -33,7 +33,7 @@ from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 from PIL import Image, ImageOps
 
-from core.detector import detect_faces, _get_insightface
+from core.detector import detect_faces, _get_insightface, align_face_upright
 from core.swapper import swap_face_insightface
 from core.skin_tone import analyze_skin_tone
 from core.super_res import restore_faces, upscale_image
@@ -657,6 +657,12 @@ def api_swap():
         _work_res = 1536 if _sr_device() == "cuda" else 1024
         source = resize_keep_aspect(source, _work_res)
         target = resize_keep_aspect(target, _work_res)
+
+        # De-roll a tilted source selfie so the eyes are level. Without this,
+        # InsightFace misses faces rolled >~15deg and the swap silently falls
+        # back to a crude paste. The swapper then aligns the upright source to
+        # the target's pose as usual.
+        source = align_face_upright(source)
 
         # -- enhance inputs (upscale small + GFPGAN restore) so detail isn't
         #    lost through the pipeline; the output is enhanced again at the end.
