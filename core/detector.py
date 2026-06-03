@@ -1,7 +1,42 @@
 import os
+import sys
+import glob
 import cv2
 import cv2.data
 import numpy as np
+
+
+def _ensure_cuda_dlls():
+    """
+    Windows: make CUDA 12 + cuDNN 9 DLLs discoverable so onnxruntime-gpu can load
+    CUDAExecutionProvider — otherwise it silently falls back to CPU (LoadLibrary
+    error 126). cuDNN 9 ships its CUDA-12 DLLs in a versioned subfolder
+    (…\\CUDNN\\vX\\bin\\12.x) that isn't on PATH by default. We auto-discover the
+    CUDA-toolkit bin + the cuDNN 12.x bin and prepend them to PATH.
+    No-op on Linux (the HF Docker/CUDA base image already puts CUDA on the path).
+    """
+    if sys.platform != "win32":
+        return
+    pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+    patterns = [
+        os.path.join(pf, "NVIDIA GPU Computing Toolkit", "CUDA", "v12*", "bin"),
+        os.path.join(pf, "NVIDIA", "CUDNN", "v*", "bin", "12*"),  # cuDNN9 for CUDA12
+        os.path.join(pf, "NVIDIA", "CUDNN", "v*", "bin"),
+    ]
+    added = set()
+    for pat in patterns:
+        for d in sorted(glob.glob(pat), reverse=True):  # newest version first
+            if os.path.isdir(d) and d not in added:
+                added.add(d)
+                os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+                try:
+                    os.add_dll_directory(d)
+                except Exception:
+                    pass
+
+
+_ensure_cuda_dlls()
+
 try:
     import onnxruntime as ort
     _ORT_PROVIDERS = (
