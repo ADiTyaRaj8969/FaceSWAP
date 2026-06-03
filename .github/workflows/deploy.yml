@@ -32,8 +32,20 @@ jobs:
             echo "Name: HF_TOKEN   Value: a Hugging Face token with WRITE access (huggingface.co -> Settings -> Access Tokens)"
             exit 1
           fi
-          # Token-in-URL auth; %s-encode safe. Force-push the repo to the Space.
+          # Token-in-URL auth. Force-push the repo to the Space.
           git remote remove hf 2>/dev/null || true
           git remote add hf "https://${HF_USER}:${HF_TOKEN}@huggingface.co/spaces/${HF_USER}/${HF_SPACE}"
           echo "Pushing to https://huggingface.co/spaces/${HF_USER}/${HF_SPACE} ..."
-          git push hf HEAD:main --force
+          # HF can transiently reject a push while the Space is still building
+          # from a previous push — retry a few times before failing.
+          n=0
+          until git push hf HEAD:main --force; do
+            n=$((n+1))
+            if [ "$n" -ge 4 ]; then
+              echo "::error::Push to Hugging Face failed after $n attempts."
+              exit 1
+            fi
+            echo "Push attempt $n failed - retrying in 15s..."
+            sleep 15
+          done
+          echo "Pushed to Hugging Face Spaces successfully."
