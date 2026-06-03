@@ -720,15 +720,14 @@ def api_swap():
 
         # 3. SOURCE complexion across face+neck (one consistent tone, no jaw
         #    seam; the head swap already carries the source skin, this also pulls
-        #    the target's visible neck to match). Strength 0.92 — the inswapper
-        #    adopts some of the target's lighting, so we pull strongly back to
-        #    the SOURCE complexion to keep the user's real skin tone.
+        #    the target's visible neck to match). 0.75 is the balanced value that
+        #    matches tone without over-tinting the face.
         swapped = match_skin_to_source(
-            swapped, source, faces_src[0], faces_tgt[0], strength=0.92
+            swapped, source, faces_src[0], faces_tgt[0], strength=0.75
         )
 
         # 4. If we only did a FACE swap (head transplant unavailable), add the
-        #    source's hair separately — the head swap already carries the hair.
+        #    source's hair + glasses separately — the head swap already has both.
         if not head_done:
             swap_hair_flag = request.form.get("swap_hair", "1") in ("1", "true", "on")
             full_head      = request.form.get("full_head", "0") in ("1", "true", "on")
@@ -746,15 +745,11 @@ def api_swap():
                     swapped = swap_hair(swapped, hf_padded, swapped, include_face=False)
                 else:
                     swapped = swap_hair(swapped, source, target, include_face=full_head)
-
-        # 4b. Carry the SOURCE's glasses onto the result — for BOTH paths. The
-        #     head-swap parser sometimes misses thin spectacle frames, so always
-        #     re-apply. No-op if the source isn't wearing glasses.
-        if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
-            try:
-                swapped = transfer_glasses(swapped, source)
-            except Exception as e:
-                print(f"[swap] glasses transfer error: {e}")
+            if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
+                try:
+                    swapped = transfer_glasses(swapped, source)
+                except Exception as e:
+                    print(f"[swap] glasses transfer error: {e}")
 
         # 5. Laplacian pyramid blend over the face boundary — multi-scale so
         #    high-frequency hair/skin detail and low-frequency colour transitions
