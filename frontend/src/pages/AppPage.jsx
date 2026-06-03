@@ -28,12 +28,19 @@ function Toast({ msg, onClose }) {
 /* Progress bar */
 function ProgressBar({ pct, label }) {
   return (
-    <div className="bg-white border border-border shadow-sm rounded-xl p-4 sm:p-5 flex flex-col gap-3">
-      <div className="h-1.5 bg-bg3 rounded-full overflow-hidden">
-        <motion.div className="h-full rounded-full bg-teal"
+    <div className="bg-white border border-border/60 shadow-sm rounded-2xl p-5 sm:p-6 flex flex-col items-center gap-4">
+      <div className="flex items-center gap-3">
+        <svg className="w-5 h-5 text-teal animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4z" />
+        </svg>
+        <span className="text-sm font-bold text-navy">{label}</span>
+      </div>
+      <div className="w-full h-2 bg-bg3 rounded-full overflow-hidden">
+        <motion.div className="h-full rounded-full bg-gradient-to-r from-teal to-teal-light"
           animate={{ width: `${pct}%` }} transition={{ duration: 0.35 }} />
       </div>
-      <p className="text-xs text-navy-light text-center font-medium">{label}</p>
+      <span className="text-[11px] text-slate font-semibold tracking-wide">{Math.round(pct)}%</span>
     </div>
   );
 }
@@ -94,10 +101,15 @@ function ImagePreview({ file, b64, onClear, infoEl }) {
   );
 }
 
+// Friendly, non-technical loading messages (no internal pipeline jargon).
 const STAGES = [
-  [10,'Detecting faces...'], [20,'Extracting landmarks...'], [35,'Segmenting hair and neck...'],
-  [50,'Running deep swap model...'], [65,'Matching skin tones...'], [75,'Blending hair to neck...'],
-  [85,'Applying Laplacian blend...'], [93,'Harmonising colours...'], [98,'Quality metrics...'],
+  [12, 'Analysing your photo...'],
+  [28, 'Preparing your campus look...'],
+  [45, 'Placing you in the scene...'],
+  [62, 'Blending everything naturally...'],
+  [78, 'Enhancing the details...'],
+  [90, 'Adding the final touches...'],
+  [97, 'Almost ready...'],
 ];
 
 
