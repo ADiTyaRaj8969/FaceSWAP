@@ -40,7 +40,6 @@ function ProgressBar({ pct, label }) {
         <motion.div className="h-full rounded-full bg-gradient-to-r from-teal to-teal-light"
           animate={{ width: `${pct}%` }} transition={{ duration: 0.35 }} />
       </div>
-      <span className="text-[11px] text-slate font-semibold tracking-wide">{Math.round(pct)}%</span>
     </div>
   );
 }
