@@ -112,7 +112,7 @@ function ManageLocations({ isPrimary }) {
   const [preview, setPreview] = useState(null);
   const [busy,    setBusy]    = useState(false);
   const [msg,     setMsg]     = useState(null);   // { type: 'ok'|'err', text }
-  const [cacheBust, setCacheBust] = useState(Date.now());
+  const [cacheBust, setCacheBust] = useState(() => Date.now());
 
   const fileRef        = useRef();   // add-form picker
   const replaceRef     = useRef();   // per-card replace picker

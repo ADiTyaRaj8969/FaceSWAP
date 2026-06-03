@@ -64,3 +64,8 @@ Location/**/*.JPG
 Location/**/*.JPEG
 Location/**/*.PNG
 Location/**/*.WEBP
+
+# dev temp
+backend.log
+resp.txt
+_diag_*.py
