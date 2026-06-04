@@ -192,12 +192,17 @@ def swap_hair(
         # Tighten the mask BEFORE feathering so the soft edge stays *inside* the
         # hair — otherwise the Gaussian expands it outward and pulls the source's
         # background in past the hairline (a bright halo above the head).
-        warped_mask = (warped_mask > 0.5).astype(np.float32)
-        erode_px = max(2, int(min(h, w) * 0.006))
-        warped_mask = cv2.erode(warped_mask, np.ones((erode_px, erode_px), np.uint8))
+        binm = (warped_mask > 0.5).astype(np.float32)
+        # Two-part alpha: a SOLID opaque core (so a wispy HairFastGAN hairline
+        # can't let the forehead/old hair show through) PLUS a SOFT outer edge (so
+        # the hair doesn't read as a hard cut-out against the background). The core
+        # is the mask eroded inward; the soft edge is the feathered full mask; the
+        # max of the two = opaque inside, gently fading at the very outline.
+        core_px = max(3, int(min(h, w) * 0.02))
+        core = cv2.erode(binm, np.ones((core_px, core_px), np.uint8))
         k = max(3, int(min(h, w) * feather) | 1)        # odd kernel
-        warped_mask = cv2.GaussianBlur(warped_mask, (k, k), 0)
-        warped_mask = np.clip(warped_mask, 0.0, 1.0)
+        soft = cv2.GaussianBlur(binm, (k, k), 0)
+        warped_mask = np.clip(np.maximum(core, soft), 0.0, 1.0)
         alpha = np.stack([warped_mask] * 3, axis=-1)
 
         # Match the source hair's exposure to the target scene before compositing.
@@ -206,7 +211,33 @@ def swap_hair(
         warped_src = _match_lighting(warped_src, swapped, warped_mask)
 
         result = (warped_src.astype(np.float32) * alpha +
-                  swapped.astype(np.float32) * (1.0 - alpha))
+                  swapped.astype(np.float32) * (1.0 - alpha)).astype(np.float32)
+
+        # Cover the target's OLD hair that the new hair didn't reach (a dark bun or
+        # temples peeking out beside the new hair) by recolouring those residual
+        # pixels toward the new hair's colour — so the head reads as ONE hairstyle
+        # instead of the new hair plus a patch of the target's original hair.
+        if not include_face:
+            try:
+                old_hair = _parse_region_mask(swapped, tgt_face.bbox, _HAIR_CLASSES,
+                                              up=1.0, down=0.5, side=0.7)
+                residual = np.clip(old_hair - warped_mask, 0.0, 1.0)
+                sel_new = warped_mask > 0.6
+                sel_res = residual > 0.5
+                if int(sel_new.sum()) > 200 and int(sel_res.sum()) > 50:
+                    lab_r = cv2.cvtColor(np.clip(result, 0, 255).astype(np.uint8),
+                                         cv2.COLOR_BGR2LAB).astype(np.float32)
+                    new_mean = np.array([lab_r[:, :, c][sel_new].mean() for c in range(3)], np.float32)
+                    res_mean = np.array([lab_r[:, :, c][sel_res].mean() for c in range(3)], np.float32)
+                    dlt = new_mean - res_mean
+                    rk = max(3, int(min(h, w) * 0.02) | 1)
+                    rm = cv2.GaussianBlur(residual, (rk, rk), 0)
+                    for c in range(3):
+                        lab_r[:, :, c] += dlt[c] * rm
+                    result = cv2.cvtColor(np.clip(lab_r, 0, 255).astype(np.uint8),
+                                          cv2.COLOR_LAB2BGR).astype(np.float32)
+            except Exception:
+                pass
         return np.clip(result, 0, 255).astype(np.uint8)
     except Exception as e:
         print(f"[head_swap] hair swap error: {e}")

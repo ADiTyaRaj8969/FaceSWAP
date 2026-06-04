@@ -749,9 +749,20 @@ def api_swap():
         # 3. GFPGAN face restoration — recovers detail lost in the 128px swap.
         swapped = restore_faces(swapped)
 
-        # 4. (skin-tone match moved to the very END of the pipeline — see below.
-        #    Doing it here let the Laplacian blend in step 6 pull the face colour
-        #    back toward the target, undoing the match. It must be the last word.)
+        # 3b. Laplacian pyramid blend over the FACE-swap boundary — smooths the
+        #     seam left by InsightFace's paste_back. MUST run BEFORE the hair step:
+        #     it composites the swapped FACE over the target everywhere else, so if
+        #     it ran after the hair it would overwrite the newly-transferred hair
+        #     (which lies outside the face mask) with the target's original hair.
+        try:
+            from core.segmentor import segment_hair_neck_skin
+            _fmask = segment_hair_neck_skin(swapped).get("face_mask")
+            if _fmask is not None and _fmask.max() > 0:
+                swapped = laplacian_blend(swapped, target, _fmask, levels=4)
+        except Exception as e:
+            print(f"[swap] Laplacian blend skipped: {e}")
+
+        # 4. (skin-tone match moved to the very END of the pipeline — see below.)
 
         # 5. HAIR + NECK — transfer the SOURCE's hair onto the result. HairFastGAN
         #    generates the source's hairstyle on an aligned portrait; swap_hair now
@@ -782,18 +793,6 @@ def api_swap():
                 swapped = transfer_glasses(swapped, source)
             except Exception as e:
                 print(f"[swap] glasses transfer error: {e}")
-
-        # 5. Laplacian pyramid blend over the face boundary — multi-scale so
-        #    high-frequency hair/skin detail and low-frequency colour transitions
-        #    are blended independently. This eliminates the hard edge that can
-        #    remain after InsightFace's paste_back and the hair composite above.
-        try:
-            from core.segmentor import segment_hair_neck_skin
-            face_mask = segment_hair_neck_skin(swapped).get("face_mask")
-            if face_mask is not None and face_mask.max() > 0:
-                swapped = laplacian_blend(swapped, target, face_mask, levels=4)
-        except Exception as e:
-            print(f"[swap] Laplacian blend skipped: {e}")
 
         # 7. SKIN TONE — the FINAL step, so nothing can override it. Drive ALL
         #    visible skin (face + neck + arms + hands) to the SOURCE complexion;
