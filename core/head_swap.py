@@ -32,6 +32,8 @@ _HEAD_CLASSES = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 17}
 # tone must stay consistent so the swap doesn't look pasted at the jaw.
 _SKIN_NECK_CLASSES = {1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 _FACE_SKIN_CLASSES = {1, 2, 3, 7, 8, 9, 10, 11, 12, 13}   # face skin/ears/nose/mouth
+_FACE_SKIN_ONLY = {1, 7, 8, 9, 10}        # skin/ears/nose ONLY — recolour these;
+                                          # brows/eyes/lips excluded (keep colour)
 _NECK_ONLY_CLASSES = {14, 15}                              # neck region
 _GLASSES_CLASSES = {6}                         # eye_g (spectacles)
 
@@ -266,6 +268,18 @@ def _body_skin_mask(img: np.ndarray, seed_mask: np.ndarray,
     return mask.astype(np.float32)
 
 
+def _skin_lab_mean(img, bbox, classes, up=0.3, down=0.6, side=0.45):
+    """Mean LAB of the PARSED skin (given classes) for the face in bbox, or None.
+    Uses BiSeNet skin pixels — so it ignores lips/eyes/hair/background and gives a
+    clean complexion sample even when the source wears makeup."""
+    m = _parse_region_mask(img, bbox, classes, up=up, down=down, side=side)
+    sel = m > 0.5
+    if int(sel.sum()) < 80:
+        return None
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB).astype(np.float32)
+    return np.array([lab[:, :, c][sel].mean() for c in range(3)], np.float32)
+
+
 def match_skin_to_source(
     swapped: np.ndarray,
     source: np.ndarray,
@@ -275,29 +289,53 @@ def match_skin_to_source(
     whole_body: bool = True,
 ) -> np.ndarray:
     """
-    Make the BODY skin (neck, arms, hands) match the swapped FACE, so the whole
-    person reads as one complexion. Clothes are left untouched.
+    Recolour ALL visible skin — face, neck, arms, hands — to the SOURCE person's
+    complexion, so the output skin tone is the source's, not the target's. Clothes
+    are untouched.
 
-    Why not recolour the face: InsightFace already transfers the source's facial
-    colouring during the swap, so the face is natural + already the source tone.
-    Recolouring it on top OVER-corrects — it introduces blotches/blue casts
-    (especially when the source has makeup or cool lighting). So we leave the face
-    exactly as the swap produced it and only bring the neck/arms/hands (which
-    still carry the TARGET's tone) UP to the face's tone. Net result: the visible
-    skin is one consistent, source-derived complexion, and the face stays clean.
-
-    `source`/`src_bbox` are unused now (kept for API compatibility).
+    How it avoids the blue/blotchy face that a naive recolour produces:
+      • the SOURCE tone is sampled from clean PARSED SKIN (class 1/nose/ears) — not
+        an oval that catches red lips / makeup / shadow;
+      • only SKIN is recoloured (`_FACE_SKIN_ONLY`); brows, eyes and LIPS are
+        excluded so they keep their own colour instead of smearing into a cast;
+      • the shift is one uniform per-region LAB offset (no per-pixel luminance
+        gate, which created patches) feathered at the edge;
+      • face skin and body skin are each driven to the SAME source tone, so they
+        end consistent with no jaw seam.
     """
-    from .skin_tone import _central_mean_lab
-
-    face_tone = _central_mean_lab(swapped, tgt_bbox)   # the good swapped-face tone
-    if face_tone is None:
+    src_skin = _skin_lab_mean(source, src_bbox, _FACE_SKIN_ONLY,
+                              up=0.3, down=0.5, side=0.4)
+    if src_skin is None:
         return swapped
 
     h, w = swapped.shape[:2]
     lab = cv2.cvtColor(swapped, cv2.COLOR_BGR2LAB).astype(np.float32)
 
-    # Body = neck (precise BiSeNet) ∪ arms/hands (adaptive chroma, clothes out).
+    def _region_mean(m):
+        sel = m > 0.5
+        if int(sel.sum()) < 80:
+            return None
+        return np.array([lab[:, :, c][sel].mean() for c in range(3)], np.float32)
+
+    L0 = lab[:, :, 0].copy()
+
+    def _apply(mask, cur_mean):
+        if cur_mean is None or mask is None or mask.max() <= 0:
+            return
+        delta = (src_skin - cur_mean) * strength
+        k = max(3, int(min(h, w) * 0.03) | 1)
+        m = cv2.GaussianBlur(np.clip(mask, 0.0, 1.0), (k, k), 0)
+        # RELATIVE luminance gate: protect pixels much darker than THIS region's
+        # own skin (beard, lashes, deep shadow) so a flat offset can't grey/blue
+        # them. Adapts to the complexion (works for dark skin too) and is smooth,
+        # so clean skin (near the mean) is fully matched with no patchiness.
+        m = m * np.clip((L0 - (cur_mean[0] - 55.0)) / 35.0, 0.0, 1.0)
+        for c in range(3):
+            lab[:, :, c] += delta[c] * m
+
+    # FACE skin (no brows/eyes/lips) and BODY skin (neck + arms/hands).
+    face_mask = _parse_region_mask(swapped, tgt_bbox, _FACE_SKIN_ONLY,
+                                   up=0.3, down=0.6, side=0.45)
     body_mask = _parse_region_mask(swapped, tgt_bbox, _NECK_ONLY_CLASSES,
                                    up=0.0, down=1.8, side=0.7)
     if whole_body:
@@ -306,20 +344,10 @@ def match_skin_to_source(
         body_mask = np.maximum(body_mask,
                                _body_skin_mask(swapped, seed, face_bbox=tgt_bbox))
 
-    sel = body_mask > 0.5
-    if int(sel.sum()) < 80:
-        return swapped                                  # no visible body skin
-
-    body_mean = np.array([lab[:, :, c][sel].mean() for c in range(3)], np.float32)
-    delta = (face_tone - body_mean) * strength
-
-    k = max(3, int(min(h, w) * 0.03) | 1)
-    m = cv2.GaussianBlur(np.clip(body_mask, 0.0, 1.0), (k, k), 0)
-    # Don't recolour dark gaps (shadow between fingers, jaw shadow) into a cast.
-    lum_w = np.clip((lab[:, :, 0] - 55.0) / 60.0, 0.0, 1.0)
-    m = m * lum_w
-    for c in range(3):
-        lab[:, :, c] += delta[c] * m
+    f_mean = _region_mean(face_mask)
+    b_mean = _region_mean(body_mask)
+    _apply(face_mask, f_mean)        # face skin -> source complexion
+    _apply(body_mask, b_mean)        # neck/arms/hands -> source complexion
     return cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
 

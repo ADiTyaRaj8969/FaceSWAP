@@ -801,7 +801,7 @@ def api_swap():
         #    blend can't pull the face colour back toward the target's tone.
         try:
             swapped = match_skin_to_source(
-                swapped, source, faces_src[0], faces_tgt[0], strength=0.9
+                swapped, source, faces_src[0], faces_tgt[0], strength=0.85
             )
         except Exception as e:
             print(f"[swap] skin tone match skipped: {e}")
