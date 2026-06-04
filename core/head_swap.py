@@ -143,8 +143,16 @@ def swap_hair(
             return swapped
 
         classes = _HEAD_CLASSES if include_face else _HAIR_CLASSES
-        src_mask = _parse_region_mask(source, src_face.bbox, classes,
-                                      up=0.9, down=0.4, side=0.5)
+        # Hair needs a TALL, WIDE parse crop: long flowing hair hangs far below the
+        # chin and out past the cheeks in the HairFastGAN portrait. The old tight
+        # crop (down=0.4, side=0.5) literally cut the long hair off before parsing,
+        # so only a short cap survived. Use a generous crop for the hair case.
+        if include_face:
+            src_mask = _parse_region_mask(source, src_face.bbox, classes,
+                                          up=0.9, down=0.4, side=0.5)
+        else:
+            src_mask = _parse_region_mask(source, src_face.bbox, classes,
+                                          up=1.0, down=2.6, side=1.4)
         if src_mask.max() <= 0:
             print("[head_swap] empty source hair mask — skipping")
             return swapped
@@ -170,8 +178,10 @@ def swap_hair(
         tx1, ty1, tx2, ty2 = [int(v) for v in tgt_face.bbox]
         tbw, tbh = tx2 - tx1, ty2 - ty1
         region = np.zeros((h, w), np.float32)
-        rx1 = max(0, tx1 - int(tbw * 1.2));  ry1 = max(0, ty1 - int(tbh * 1.4))
-        rx2 = min(w, tx2 + int(tbw * 1.2));  ry2 = min(h, ty2 + int(tbh * 3.0))
+        # Generous box: long hair drapes well past the shoulders and out to the
+        # sides, so allow it. Only far-above/far-aside stray bits get cut.
+        rx1 = max(0, tx1 - int(tbw * 2.2));  ry1 = max(0, ty1 - int(tbh * 1.6))
+        rx2 = min(w, tx2 + int(tbw * 2.2));  ry2 = min(h, ty2 + int(tbh * 5.0))
         region[ry1:ry2, rx1:rx2] = 1.0
         warped_mask *= region
 
@@ -179,7 +189,7 @@ def swap_hair(
         # hair — otherwise the Gaussian expands it outward and pulls the source's
         # background in past the hairline (a bright halo above the head).
         warped_mask = (warped_mask > 0.5).astype(np.float32)
-        erode_px = max(2, int(min(h, w) * 0.015))
+        erode_px = max(2, int(min(h, w) * 0.006))
         warped_mask = cv2.erode(warped_mask, np.ones((erode_px, erode_px), np.uint8))
         k = max(3, int(min(h, w) * feather) | 1)        # odd kernel
         warped_mask = cv2.GaussianBlur(warped_mask, (k, k), 0)

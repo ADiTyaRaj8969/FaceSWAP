@@ -736,11 +736,12 @@ def api_swap():
             swapped, source, faces_src[0], faces_tgt[0], strength=0.85
         )
 
-        # 5. HAIR (opt-in) — HairFastGAN generates the source's hair on a portrait,
-        #    but compositing that hair back onto a small in-scene head loses it
-        #    (and adds ~80s/swap). Off by default until the in-scene composite is
-        #    solved; request swap_hair=1 to attempt it.
-        if request.form.get("swap_hair", "0") in ("1", "true", "on"):
+        # 5. HAIR + NECK — transfer the SOURCE's hair onto the result. HairFastGAN
+        #    generates the source's hairstyle on an aligned portrait; swap_hair now
+        #    composites the FULL long hair back into the scene (the parse crop +
+        #    region clamp were widened so long hair is no longer cut off). ON by
+        #    default (set swap_hair=0 for a fast face-only swap).
+        if request.form.get("swap_hair", "1") in ("1", "true", "on"):
             hf_portrait = None
             try:
                 hf_portrait = transfer_hair(face_bgr=swapped, shape_bgr=source,
