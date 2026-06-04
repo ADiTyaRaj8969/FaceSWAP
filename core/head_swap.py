@@ -289,65 +289,42 @@ def match_skin_to_source(
     whole_body: bool = True,
 ) -> np.ndarray:
     """
-    Recolour ALL visible skin — face, neck, arms, hands — to the SOURCE person's
-    complexion, so the output skin tone is the source's, not the target's. Clothes
-    are untouched.
+    Shift ALL visible skin — face, neck, arms, hands — toward the SOURCE
+    complexion with ONE uniform LAB offset over a single feathered skin mask.
+    Clothes are untouched.
 
-    How it avoids the blue/blotchy face that a naive recolour produces:
-      • the SOURCE tone is sampled from clean PARSED SKIN (class 1/nose/ears) — not
-        an oval that catches red lips / makeup / shadow;
-      • only SKIN is recoloured (`_FACE_SKIN_ONLY`); brows, eyes and LIPS are
-        excluded so they keep their own colour instead of smearing into a cast;
-      • the shift is one uniform per-region LAB offset (no per-pixel luminance
-        gate, which created patches) feathered at the edge;
-      • face skin and body skin are each driven to the SAME source tone, so they
-        end consistent with no jaw seam.
+    Deliberately simple: NO per-region deltas and NO luminance gate. Both of those
+    moved different skin pixels by different amounts (a side-lit cheek or a beard
+    shifting differently from the rest), which is exactly what produced the
+    blotches/patches. A single uniform offset moves every skin pixel by the same
+    amount, so it changes the overall tone to the source's and can never create an
+    internal patch — only a smooth, feathered edge where skin meets clothes/hair.
+    The offset is measured from clean PARSED skin (lips/eyes/makeup excluded) on
+    both the source and the swapped face, so it's an accurate complexion delta.
     """
     src_skin = _skin_lab_mean(source, src_bbox, _FACE_SKIN_ONLY,
                               up=0.3, down=0.5, side=0.4)
-    if src_skin is None:
+    swp_skin = _skin_lab_mean(swapped, tgt_bbox, _FACE_SKIN_ONLY,
+                              up=0.3, down=0.6, side=0.45)
+    if src_skin is None or swp_skin is None:
         return swapped
 
     h, w = swapped.shape[:2]
-    lab = cv2.cvtColor(swapped, cv2.COLOR_BGR2LAB).astype(np.float32)
-
-    def _region_mean(m):
-        sel = m > 0.5
-        if int(sel.sum()) < 80:
-            return None
-        return np.array([lab[:, :, c][sel].mean() for c in range(3)], np.float32)
-
-    L0 = lab[:, :, 0].copy()
-
-    def _apply(mask, cur_mean):
-        if cur_mean is None or mask is None or mask.max() <= 0:
-            return
-        delta = (src_skin - cur_mean) * strength
-        k = max(3, int(min(h, w) * 0.03) | 1)
-        m = cv2.GaussianBlur(np.clip(mask, 0.0, 1.0), (k, k), 0)
-        # RELATIVE luminance gate: protect pixels much darker than THIS region's
-        # own skin (beard, lashes, deep shadow) so a flat offset can't grey/blue
-        # them. Adapts to the complexion (works for dark skin too) and is smooth,
-        # so clean skin (near the mean) is fully matched with no patchiness.
-        m = m * np.clip((L0 - (cur_mean[0] - 55.0)) / 35.0, 0.0, 1.0)
-        for c in range(3):
-            lab[:, :, c] += delta[c] * m
-
-    # FACE skin (no brows/eyes/lips) and BODY skin (neck + arms/hands).
-    face_mask = _parse_region_mask(swapped, tgt_bbox, _FACE_SKIN_ONLY,
-                                   up=0.3, down=0.6, side=0.45)
-    body_mask = _parse_region_mask(swapped, tgt_bbox, _NECK_ONLY_CLASSES,
-                                   up=0.0, down=1.8, side=0.7)
+    # One skin mask: face skin + nose + lips + ears + neck (no interior holes) plus
+    # the arms/hands. No holes => a uniform offset stays seamless.
+    mask = _parse_region_mask(swapped, tgt_bbox, _SKIN_NECK_CLASSES,
+                              up=0.3, down=1.8, side=0.7)
     if whole_body:
-        seed = _parse_region_mask(swapped, tgt_bbox, _SKIN_NECK_CLASSES,
-                                  up=0.3, down=1.0, side=0.5)
-        body_mask = np.maximum(body_mask,
-                               _body_skin_mask(swapped, seed, face_bbox=tgt_bbox))
+        mask = np.maximum(mask, _body_skin_mask(swapped, mask, face_bbox=tgt_bbox))
+    if mask.max() <= 0:
+        return swapped
 
-    f_mean = _region_mean(face_mask)
-    b_mean = _region_mean(body_mask)
-    _apply(face_mask, f_mean)        # face skin -> source complexion
-    _apply(body_mask, b_mean)        # neck/arms/hands -> source complexion
+    delta = (src_skin - swp_skin) * strength          # one offset for ALL skin
+    k = max(3, int(min(h, w) * 0.04) | 1)
+    m = cv2.GaussianBlur(np.clip(mask, 0.0, 1.0), (k, k), 0)
+    lab = cv2.cvtColor(swapped, cv2.COLOR_BGR2LAB).astype(np.float32)
+    for c in range(3):
+        lab[:, :, c] += delta[c] * m
     return cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
 
