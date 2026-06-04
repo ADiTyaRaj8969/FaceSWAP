@@ -215,3 +215,34 @@ def get_insightface_faces(image: np.ndarray):
         return app.get(image)
     except Exception:
         return []
+
+
+def pad_until_detectable(image: np.ndarray, fracs=(0.3, 0.5, 0.8)) -> np.ndarray:
+    """
+    Make a close-up face detectable.
+
+    A selfie where the face fills the whole frame (no margin) defeats the
+    RetinaFace detector inside InsightFace — it returns 0 faces, so the swap
+    silently falls back to a crude paste (no real swap, no hair/skin/neck). We
+    pad a replicated margin around the image until a face is found; the extra
+    border gives the detector the context it needs.
+
+    Safe for the SOURCE image, which is only used to READ the face landmarks —
+    the output is always drawn on the target canvas, so the border never shows.
+    Returns the padded image, or the original if a face is already detectable
+    (or none can be found at any padding).
+    """
+    app = _get_insightface()
+    if app is None:
+        return image
+    try:
+        if app.get(image):
+            return image                       # already detectable — no change
+        for frac in fracs:
+            p = int(max(image.shape[:2]) * frac)
+            padded = cv2.copyMakeBorder(image, p, p, p, p, cv2.BORDER_REPLICATE)
+            if app.get(padded):
+                return padded
+    except Exception:
+        pass
+    return image

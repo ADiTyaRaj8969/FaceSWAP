@@ -33,7 +33,7 @@ from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 from PIL import Image, ImageOps
 
-from core.detector import detect_faces, _get_insightface, align_face_upright
+from core.detector import detect_faces, _get_insightface, align_face_upright, pad_until_detectable
 from core.swapper import swap_face_insightface
 from core.skin_tone import analyze_skin_tone
 from core.super_res import restore_faces, upscale_image
@@ -282,7 +282,20 @@ def _encode_image(img: np.ndarray, fmt: str = "JPEG", quality: int = 88) -> str:
 
 def _safe_detect(img):
     faces = detect_faces(img)
-    return faces
+    if faces:
+        return faces
+    # Close-up face filling the frame defeats the detector (0 faces). Pad a
+    # replicated margin, detect there, and remap the boxes back to the original
+    # image coords so the count is right and the upload isn't wrongly rejected.
+    h, w = img.shape[:2]
+    for frac in (0.3, 0.5, 0.8):
+        p = int(max(h, w) * frac)
+        padded = cv2.copyMakeBorder(img, p, p, p, p, cv2.BORDER_REPLICATE)
+        pf = detect_faces(padded)
+        if pf:
+            return [(max(0, x1 - p), max(0, y1 - p),
+                     min(w, x2 - p), min(h, y2 - p)) for (x1, y1, x2, y2) in pf]
+    return []
 
 
 def _enhance_input(img: np.ndarray) -> np.ndarray:
@@ -657,6 +670,12 @@ def api_swap():
         _work_res = 1536 if _sr_device() == "cuda" else 1024
         source = resize_keep_aspect(source, _work_res)
         target = resize_keep_aspect(target, _work_res)
+
+        # Close-up selfie? A face that fills the whole frame defeats the detector
+        # (0 faces -> crude paste -> no real swap/hair/skin). Pad a margin so the
+        # face is found. The source is only read for its landmarks, so the border
+        # never appears in the output (which is drawn on the target canvas).
+        source = pad_until_detectable(source)
 
         # De-roll a tilted source selfie so the eyes are level. Without this,
         # InsightFace misses faces rolled >~15deg and the swap silently falls
