@@ -209,23 +209,81 @@ def swap_hair(
         return swapped
 
 
+def _body_skin_mask(img: np.ndarray, seed_mask: np.ndarray,
+                    face_bbox=None) -> np.ndarray:
+    """
+    Find ALL visible skin in the image (arms, hands, … not just the head) that
+    matches the person's complexion, so the tone shift can cover the whole body.
+
+    The face+neck `seed_mask` tells us this person's actual skin chroma; we then
+    select every pixel whose Cr/Cb (colour, brightness-independent) is close to
+    that seed. Clothes (a green polo, black trousers) sit far away in chroma and
+    are naturally excluded — so we recolour skin only, never the shirt. The match
+    is confined to a column around the person (`face_bbox`) so warm-coloured
+    background (wood, skin-toned walls/reflections) can't be tinted.
+    """
+    seed = seed_mask > 0.5
+    if seed.sum() < 300:
+        return np.zeros(img.shape[:2], np.float32)
+
+    ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+    y  = ycrcb[:, :, 0].astype(np.float32)
+    cr = ycrcb[:, :, 1].astype(np.float32)
+    cb = ycrcb[:, :, 2].astype(np.float32)
+
+    cr_m, cb_m = cr[seed].mean(), cb[seed].mean()
+    # Tolerance: a little wider than the seed's own spread (skin in shadow/light
+    # drifts), but clamped so it can't bleed into clothing.
+    cr_t = float(np.clip(cr[seed].std() * 2.5, 12.0, 22.0))
+    cb_t = float(np.clip(cb[seed].std() * 2.5, 12.0, 22.0))
+
+    mask = ((np.abs(cr - cr_m) < cr_t) &
+            (np.abs(cb - cb_m) < cb_t) &
+            (y > 45)).astype(np.uint8)                # drop near-black pixels
+
+    h, w = img.shape[:2]
+    # Confine to the person's column: a generous band centred on the face (wide
+    # enough for arms reaching out) from just above the head to the image bottom.
+    if face_bbox is not None:
+        x1, y1, x2, y2 = [int(v) for v in face_bbox]
+        fw, fh = x2 - x1, y2 - y1
+        cx = (x1 + x2) // 2
+        region = np.zeros((h, w), np.uint8)
+        rx1 = max(0, cx - int(fw * 2.6))
+        rx2 = min(w, cx + int(fw * 2.6))
+        # Start at mid-face: the parser already handles the face+neck precisely,
+        # and arms/hands are always BELOW — so beginning here adds the body while
+        # excluding head-height background reflections beside the face.
+        ry1 = max(0, y1 + int(fh * 0.5))
+        region[ry1:h, rx1:rx2] = 1
+        mask = mask * region
+
+    # Clean specks + close small gaps so arms/hands come through as solid regions.
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  np.ones((5, 5), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((13, 13), np.uint8))
+    return mask.astype(np.float32)
+
+
 def match_skin_to_source(
     swapped: np.ndarray,
     source: np.ndarray,
     src_bbox,
     tgt_bbox,
     strength: float = 0.85,
+    whole_body: bool = True,
 ) -> np.ndarray:
     """
-    Recolour the whole visible skin region — face AND neck — toward the source
-    complexion so there is no tone seam at the jaw (the "pasted face" look).
+    Recolour ALL visible skin — face, neck, AND arms/hands — toward the source
+    complexion, so the result reads as one person (no fair face on darker arms,
+    or vice-versa). Clothes are left untouched.
 
     The shift is one uniform LAB offset (source central-face mean minus the
-    swapped central-face mean) applied across a BiSeNet skin+neck mask, feathered
-    at the edge. Because both the face and neck receive the same offset, they end
-    up the same complexion; the mask stops at the collar (cloth is excluded), so
-    the transition to clothing is hidden. Falls back to the face-only ellipse
-    matcher when the parser/mask is unavailable.
+    swapped central-face mean). It is applied across the union of:
+      • a BiSeNet skin+neck mask around the head (precise jaw/collar edge), and
+      • an adaptive body-skin mask (`_body_skin_mask`) that catches arms/hands by
+        matching the person's own skin chroma — clothes sit far off in chroma so
+        they are excluded.
+    Falls back to the face-only ellipse matcher when the parser is unavailable.
     """
     from .skin_tone import _central_mean_lab, match_face_to_source_tone
 
@@ -244,6 +302,12 @@ def match_skin_to_source(
                                          strength=strength)
 
     h, w = swapped.shape[:2]
+    if whole_body:
+        # Extend the shift to arms/hands using the head skin as the chroma seed,
+        # confined to the person's column so the background isn't tinted.
+        body = _body_skin_mask(swapped, mask, face_bbox=tgt_bbox)
+        mask = np.maximum(mask, body)
+
     k = max(3, int(min(h, w) * 0.03) | 1)
     mask = cv2.GaussianBlur(mask, (k, k), 0)
     mask = np.clip(mask, 0.0, 1.0)
