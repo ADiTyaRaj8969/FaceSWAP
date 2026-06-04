@@ -749,11 +749,9 @@ def api_swap():
         # 3. GFPGAN face restoration — recovers detail lost in the 128px swap.
         swapped = restore_faces(swapped)
 
-        # 4. SOURCE complexion across face+neck so the swapped face doesn't read
-        #    lighter/darker than the body. 0.75 = matched but not over-tinted.
-        swapped = match_skin_to_source(
-            swapped, source, faces_src[0], faces_tgt[0], strength=0.85
-        )
+        # 4. (skin-tone match moved to the very END of the pipeline — see below.
+        #    Doing it here let the Laplacian blend in step 6 pull the face colour
+        #    back toward the target, undoing the match. It must be the last word.)
 
         # 5. HAIR + NECK — transfer the SOURCE's hair onto the result. HairFastGAN
         #    generates the source's hairstyle on an aligned portrait; swap_hair now
@@ -796,6 +794,17 @@ def api_swap():
                 swapped = laplacian_blend(swapped, target, face_mask, levels=4)
         except Exception as e:
             print(f"[swap] Laplacian blend skipped: {e}")
+
+        # 7. SKIN TONE — the FINAL step, so nothing can override it. Drive ALL
+        #    visible skin (face + neck + arms + hands) to the SOURCE complexion;
+        #    clothes/background are excluded. Done AFTER the Laplacian blend so the
+        #    blend can't pull the face colour back toward the target's tone.
+        try:
+            swapped = match_skin_to_source(
+                swapped, source, faces_src[0], faces_tgt[0], strength=0.9
+            )
+        except Exception as e:
+            print(f"[swap] skin tone match skipped: {e}")
 
         # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(swapped, target, None, None)
