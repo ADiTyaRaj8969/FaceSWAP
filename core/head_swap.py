@@ -419,15 +419,18 @@ def match_skin_to_source(
     for c in range(3):
         lab[:, :, c] += delta[c] * m
 
-    # Gentle EXTRA pass for NECK + BODY only (not the face — it's already at the
-    # source tone). The neck/arms/hands often start a bit darker/cooler than the
-    # face, so nudge them the rest of the way to the source complexion. Uniform
-    # within the neck/body (no beard, even lighting) so it stays patch-free, and
-    # the face is untouched so there's no risk of a facial cast.
+    # Gentle EXTRA pass for NECK + BODY only — nudge the neck/arms/hands the rest
+    # of the way to the source complexion. CRITICAL: restrict to strictly BELOW the
+    # chin. (The old version did mask - face_parse, which left the LIPS and a ring
+    # of cheek/jaw in the region — recolouring them produced the discoloured facial
+    # patches.) Zeroing everything above the chin guarantees the face is untouched.
     if whole_body:
-        face_reg = _parse_region_mask(swapped, tgt_bbox, _FACE_SKIN_ONLY,
-                                      up=0.3, down=0.6, side=0.45)
-        nb = np.clip(mask - face_reg, 0.0, 1.0)
+        try:
+            ty2 = int(tgt_bbox[3])
+        except Exception:
+            ty2 = int(tgt_bbox.bbox[3])
+        nb = mask.copy()
+        nb[:max(0, ty2), :] = 0.0                  # exclude the entire face
         sel = nb > 0.5
         if int(sel.sum()) > 100:
             nb_mean = np.array([lab[:, :, c][sel].mean() for c in range(3)], np.float32)
