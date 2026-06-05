@@ -230,7 +230,21 @@ def swap_hair(
             # low-probability strand edge stays semi-transparent — a natural wispy
             # boundary. A tiny blur removes 512px parser blockiness.
             am = np.clip(np.clip(warped_mask, 0.0, 1.0) * 1.6, 0.0, 1.0)
-            warped_mask = cv2.GaussianBlur(am, (3, 3), 0)
+            am = cv2.GaussianBlur(am, (3, 3), 0)
+            # HIGH-PRECISION edge refinement: snap the matte to the ACTUAL hair
+            # edges — both the outer outline and the hairline where hair meets the
+            # forehead — with an edge-aware guided filter (guide = the hair image,
+            # which already has the scene behind it). This aligns the alpha to real
+            # strands/hairline instead of a soft blob, for a precise hair/forehead
+            # blend. Falls back to the plain matte if ximgproc is unavailable.
+            try:
+                guide = cv2.cvtColor(np.clip(warped_src, 0, 255).astype(np.uint8),
+                                     cv2.COLOR_BGR2GRAY)
+                rad = max(2, int(min(h, w) * 0.012))
+                am = cv2.ximgproc.guidedFilter(guide, am.astype(np.float32), rad, 1e-3)
+            except Exception:
+                pass
+            warped_mask = np.clip(am, 0.0, 1.0)
         else:
             # Head-swap path: erode to solid hair, then a small feather.
             binm = (warped_mask > 0.5).astype(np.float32)
@@ -391,6 +405,23 @@ def match_skin_to_source(
     lab = cv2.cvtColor(swapped, cv2.COLOR_BGR2LAB).astype(np.float32)
     for c in range(3):
         lab[:, :, c] += delta[c] * m
+
+    # Gentle EXTRA pass for NECK + BODY only (not the face — it's already at the
+    # source tone). The neck/arms/hands often start a bit darker/cooler than the
+    # face, so nudge them the rest of the way to the source complexion. Uniform
+    # within the neck/body (no beard, even lighting) so it stays patch-free, and
+    # the face is untouched so there's no risk of a facial cast.
+    if whole_body:
+        face_reg = _parse_region_mask(swapped, tgt_bbox, _FACE_SKIN_ONLY,
+                                      up=0.3, down=0.6, side=0.45)
+        nb = np.clip(mask - face_reg, 0.0, 1.0)
+        sel = nb > 0.5
+        if int(sel.sum()) > 100:
+            nb_mean = np.array([lab[:, :, c][sel].mean() for c in range(3)], np.float32)
+            extra = (src_skin - nb_mean) * 0.45
+            mb = cv2.GaussianBlur(nb, (k, k), 0)
+            for c in range(3):
+                lab[:, :, c] += extra[c] * mb
     return cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
 
