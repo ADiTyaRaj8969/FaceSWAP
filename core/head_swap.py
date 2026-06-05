@@ -106,6 +106,37 @@ def _parse_region_mask(image, bbox, classes,
     return full
 
 
+def _soft_hair_matte(image, bbox, up=1.0, down=2.6, side=1.4) -> np.ndarray:
+    """
+    Soft 0..1 hair matte from BiSeNet's SOFTMAX probability for the hair class
+    (class 17) — NOT the hard argmax mask. The probability fades gradually across
+    the individual strands at the hair's outline, so compositing with it gives a
+    wispy, real-hair edge instead of a cut-out mask boundary. Returns a full-image
+    float map in the input image's coordinates.
+    """
+    import torch
+    parser = _get_parser()
+    h, w = image.shape[:2]
+    full = np.zeros((h, w), np.float32)
+    if parser is None:
+        return full
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    bw, bh = x2 - x1, y2 - y1
+    ex1 = max(0, x1 - int(bw * side)); ey1 = max(0, y1 - int(bh * up))
+    ex2 = min(w, x2 + int(bw * side)); ey2 = min(h, y2 + int(bh * down))
+    crop = image[ey1:ey2, ex1:ex2]
+    if crop.size == 0:
+        return full
+    inp = cv2.resize(crop, (512, 512))
+    rgb = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    rgb = (rgb - 0.5) / 0.5
+    t = torch.from_numpy(rgb.transpose(2, 0, 1)).unsqueeze(0).float().to(_device())
+    with torch.no_grad():
+        prob = torch.softmax(parser(t)[0], dim=1)[0, 17].cpu().numpy().astype(np.float32)
+    full[ey1:ey2, ex1:ex2] = cv2.resize(prob, (ex2 - ex1, ey2 - ey1))
+    return full
+
+
 def swap_hair(
     swapped: np.ndarray,
     source: np.ndarray,
@@ -146,70 +177,67 @@ def swap_hair(
             print("[head_swap] could not fit transform — skipping")
             return swapped
 
-        classes = _HEAD_CLASSES if include_face else _HAIR_CLASSES
-        # Hair needs a TALL, WIDE parse crop: long flowing hair hangs far below the
-        # chin and out past the cheeks in the HairFastGAN portrait. The old tight
-        # crop (down=0.4, side=0.5) literally cut the long hair off before parsing,
-        # so only a short cap survived. Use a generous crop for the hair case.
+        # SOURCE hair as a SOFT matte (real wispy strand edges) for the hair case;
+        # a binary head mask for the full-head-swap case. Generous crop either way
+        # so long hair isn't cut before parsing.
         if include_face:
-            src_mask = _parse_region_mask(source, src_face.bbox, classes,
+            src_mask = _parse_region_mask(source, src_face.bbox, _HEAD_CLASSES,
                                           up=0.9, down=0.4, side=0.5)
+            soft = False
         else:
-            src_mask = _parse_region_mask(source, src_face.bbox, classes,
-                                          up=1.0, down=2.6, side=1.4)
+            src_mask = _soft_hair_matte(source, src_face.bbox,
+                                        up=1.0, down=2.6, side=1.4)
+            soft = True
         if src_mask.max() <= 0:
             print("[head_swap] empty source hair mask — skipping")
             return swapped
 
-        # Keep only the largest connected region — drops stray patches the
-        # parser sometimes marks on a noisy/low-contrast background.
+        # Keep only the largest connected region (drop stray bg patches). For the
+        # soft matte, keep the SOFT values inside that region — don't binarise, or
+        # we'd lose the strand gradient that makes the edge look real.
         n, labels, stats, _ = cv2.connectedComponentsWithStats(
-            (src_mask > 0.5).astype(np.uint8), connectivity=8
-        )
+            (src_mask > (0.4 if soft else 0.5)).astype(np.uint8), connectivity=8)
         if n > 1:
             biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-            src_mask = (labels == biggest).astype(np.float32)
+            keep = (labels == biggest).astype(np.float32)
+            src_mask = src_mask * keep if soft else keep
 
         h, w = target.shape[:2]
         warped_src  = cv2.warpAffine(source, M, (w, h), flags=cv2.INTER_LINEAR)
         warped_mask = cv2.warpAffine(src_mask, M, (w, h), flags=cv2.INTER_LINEAR)
 
-        # Clamp the transferred hair to a plausible head region around the target
-        # face, so a size/pose mismatch can't leave hair floating in the sky.
-        # The box is generous downward and sideways so LONG hair (e.g. female
-        # styles past the shoulders) is preserved — only far-above/far-aside
-        # stray regions are cut.
+        # Clamp to a plausible head box around the target face (generous down/side
+        # for long hair) so a pose/size mismatch can't leave hair in the sky.
         tx1, ty1, tx2, ty2 = [int(v) for v in tgt_face.bbox]
         tbw, tbh = tx2 - tx1, ty2 - ty1
         region = np.zeros((h, w), np.float32)
-        # Generous box: long hair drapes well past the shoulders and out to the
-        # sides, so allow it. Only far-above/far-aside stray bits get cut.
         rx1 = max(0, tx1 - int(tbw * 2.2));  ry1 = max(0, ty1 - int(tbh * 1.6))
         rx2 = min(w, tx2 + int(tbw * 2.2));  ry2 = min(h, ty2 + int(tbh * 5.0))
         region[ry1:ry2, rx1:rx2] = 1.0
         warped_mask *= region
 
-        # Tighten the mask BEFORE feathering so the soft edge stays *inside* the
-        # hair — otherwise the Gaussian expands it outward and pulls the source's
-        # background in past the hairline (a bright halo above the head).
-        binm = (warped_mask > 0.5).astype(np.float32)
-
-        # KILL THE GREY HALO: the HairFastGAN portrait has flat grey padding around
-        # the head, and warpAffine leaves black outside it. If we feather straight
-        # over that, the soft hair edge blends hair -> grey/black and reads as a
-        # blurry "pasted" halo. So first replace everything outside the hair with
-        # the actual SCENE — now the feathered edge blends hair -> scene, naturally.
-        hair_region = cv2.dilate(binm, np.ones((3, 3), np.uint8))[..., None] > 0.5
+        # KILL THE GREY HALO: replace everything outside the hair with the SCENE so
+        # the soft strand edge blends hair -> scene, not hair -> the portrait's flat
+        # grey padding (which would read as a pasted halo).
+        thr = 0.15 if soft else 0.5
+        hair_region = cv2.dilate((warped_mask > thr).astype(np.uint8),
+                                 np.ones((3, 3), np.uint8))[..., None] > 0
         warped_src = np.where(hair_region, warped_src, swapped)
 
-        # Crisp, natural edge: erode to SOLID hair, then feather with a SMALL
-        # kernel so the soft transition sits just INSIDE the hair. This drops the
-        # parser's fuzzy grey edge pixels AND avoids a wide grey band from blending
-        # dark hair into a bright background — the edge stays hair-coloured.
-        er_px = max(2, int(min(h, w) * 0.005))
-        solid = cv2.erode(binm, np.ones((er_px, er_px), np.uint8))
-        k = max(3, int(min(h, w) * feather) | 1)        # odd kernel
-        warped_mask = np.clip(cv2.GaussianBlur(solid, (k, k), 0), 0.0, 1.0)
+        if soft:
+            # REAL-HAIR alpha: the softmax matte already fades across strands. Boost
+            # the interior to fully opaque (no forehead show-through) while the
+            # low-probability strand edge stays semi-transparent — a natural wispy
+            # boundary. A tiny blur removes 512px parser blockiness.
+            am = np.clip(np.clip(warped_mask, 0.0, 1.0) * 1.6, 0.0, 1.0)
+            warped_mask = cv2.GaussianBlur(am, (3, 3), 0)
+        else:
+            # Head-swap path: erode to solid hair, then a small feather.
+            binm = (warped_mask > 0.5).astype(np.float32)
+            er_px = max(2, int(min(h, w) * 0.005))
+            solid = cv2.erode(binm, np.ones((er_px, er_px), np.uint8))
+            k = max(3, int(min(h, w) * feather) | 1)
+            warped_mask = np.clip(cv2.GaussianBlur(solid, (k, k), 0), 0.0, 1.0)
         alpha = np.stack([warped_mask] * 3, axis=-1)
 
         # Match the source hair's exposure to the target scene before compositing.
