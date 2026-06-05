@@ -236,19 +236,28 @@ def swap_hair(
             base_matte = np.clip(warped_mask, 0.0, 1.0)
             am = np.clip(base_matte * 1.6, 0.0, 1.0)
             am = cv2.GaussianBlur(am, (3, 3), 0)
-            # HARD CLAMP to the hair's real extent (+ a small strand margin): the
-            # matte's faint low-probability tail (the HairFastGAN portrait's thin
-            # grey crown against its grey padding) otherwise composites as a grey
-            # haze/line above the head — the artefact seen on the website. Limiting
-            # the alpha to the CONFIDENT hair region removes it while keeping the
-            # near-edge strands. (No guided filter: it spread that haze and isn't in
-            # the headless OpenCV on HF, so this keeps local and HF identical.)
-            mg = max(3, int(min(h, w) * 0.008))
-            extent = cv2.dilate((base_matte > 0.6).astype(np.uint8),
+            # SOFT strand edge: keep the matte's natural falloff, but bound it to a
+            # modest margin beyond the confident hair so a far faint tail can't haze.
+            # (No guided filter — it spread the haze and isn't in HF's headless
+            # OpenCV, so local and HF stay identical.)
+            mg = max(3, int(min(h, w) * 0.022))
+            extent = cv2.dilate((base_matte > 0.4).astype(np.uint8),
                                 np.ones((mg, mg), np.uint8)).astype(np.float32)
-            extent = cv2.GaussianBlur(extent, (3, 3), 0)
-            am = am * extent
-            warped_mask = np.clip(am, 0.0, 1.0)
+            extent = cv2.GaussianBlur(extent, (mg | 1, mg | 1), 0)
+            am = am * np.clip(extent, 0.0, 1.0)
+            # Kill the HairFastGAN portrait's GREY thin-crown tail by COLOUR, not by
+            # cropping (which hardened the edge). In the soft edge only, attenuate
+            # pixels that are desaturated mid-grey (≈ the portrait's grey padding) —
+            # that removes the grey haze while leaving hair-coloured strands (the raw
+            # -selfie path, dark or blond) fully soft. The website grey line is gone
+            # AND the edge stays wispy.
+            hsv = cv2.cvtColor(np.clip(warped_src, 0, 255).astype(np.uint8),
+                               cv2.COLOR_BGR2HSV)
+            grey = ((hsv[:, :, 1] < 46) & (hsv[:, :, 2] > 95) &
+                    (hsv[:, :, 2] < 185)).astype(np.float32)
+            soft_zone = (am < 0.85).astype(np.float32)
+            am = am * (1.0 - 0.9 * grey * soft_zone)
+            warped_mask = np.clip(cv2.GaussianBlur(am, (3, 3), 0), 0.0, 1.0)
         else:
             # Head-swap path: erode to solid hair, then a small feather.
             binm = (warped_mask > 0.5).astype(np.float32)
