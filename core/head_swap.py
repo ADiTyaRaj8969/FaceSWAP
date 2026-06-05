@@ -216,10 +216,14 @@ def swap_hair(
         region[ry1:ry2, rx1:rx2] = 1.0
         warped_mask *= region
 
-        # KILL THE GREY HALO: replace everything outside the hair with the SCENE so
-        # the soft strand edge blends hair -> scene, not hair -> the portrait's flat
-        # grey padding (which would read as a pasted halo).
-        thr = 0.15 if soft else 0.5
+        # KILL THE GREY HALO/HAZE: replace everything outside the hair with the
+        # SCENE so the soft strand edge blends hair -> scene, not hair -> the
+        # portrait's grey padding. The threshold matters: the soft matte has a
+        # faint tail (low probability) ABOVE/around the hair; if we keep the
+        # portrait's grey hair-edge pixels there, that tail composites as a grey
+        # haze floating over the head. Using a higher threshold (0.3) makes that
+        # tail scene-over-scene = invisible, so only the confident strands remain.
+        thr = 0.3 if soft else 0.5
         hair_region = cv2.dilate((warped_mask > thr).astype(np.uint8),
                                  np.ones((3, 3), np.uint8))[..., None] > 0
         warped_src = np.where(hair_region, warped_src, swapped)
@@ -229,21 +233,21 @@ def swap_hair(
             # the interior to fully opaque (no forehead show-through) while the
             # low-probability strand edge stays semi-transparent — a natural wispy
             # boundary. A tiny blur removes 512px parser blockiness.
-            am = np.clip(np.clip(warped_mask, 0.0, 1.0) * 1.6, 0.0, 1.0)
+            base_matte = np.clip(warped_mask, 0.0, 1.0)
+            am = np.clip(base_matte * 1.6, 0.0, 1.0)
             am = cv2.GaussianBlur(am, (3, 3), 0)
-            # HIGH-PRECISION edge refinement: snap the matte to the ACTUAL hair
-            # edges — both the outer outline and the hairline where hair meets the
-            # forehead — with an edge-aware guided filter (guide = the hair image,
-            # which already has the scene behind it). This aligns the alpha to real
-            # strands/hairline instead of a soft blob, for a precise hair/forehead
-            # blend. Falls back to the plain matte if ximgproc is unavailable.
-            try:
-                guide = cv2.cvtColor(np.clip(warped_src, 0, 255).astype(np.uint8),
-                                     cv2.COLOR_BGR2GRAY)
-                rad = max(2, int(min(h, w) * 0.012))
-                am = cv2.ximgproc.guidedFilter(guide, am.astype(np.float32), rad, 1e-3)
-            except Exception:
-                pass
+            # HARD CLAMP to the hair's real extent (+ a small strand margin): the
+            # matte's faint low-probability tail (the HairFastGAN portrait's thin
+            # grey crown against its grey padding) otherwise composites as a grey
+            # haze/line above the head — the artefact seen on the website. Limiting
+            # the alpha to the CONFIDENT hair region removes it while keeping the
+            # near-edge strands. (No guided filter: it spread that haze and isn't in
+            # the headless OpenCV on HF, so this keeps local and HF identical.)
+            mg = max(3, int(min(h, w) * 0.008))
+            extent = cv2.dilate((base_matte > 0.6).astype(np.uint8),
+                                np.ones((mg, mg), np.uint8)).astype(np.float32)
+            extent = cv2.GaussianBlur(extent, (3, 3), 0)
+            am = am * extent
             warped_mask = np.clip(am, 0.0, 1.0)
         else:
             # Head-swap path: erode to solid hair, then a small feather.
