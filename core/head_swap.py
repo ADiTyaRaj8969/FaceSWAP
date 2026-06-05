@@ -111,7 +111,7 @@ def swap_hair(
     source: np.ndarray,
     target: np.ndarray,
     include_face: bool = False,
-    feather: float = 0.018,
+    feather: float = 0.01,
 ) -> np.ndarray:
     """
     Transplant the source's hair onto the face-swapped result.
@@ -202,15 +202,14 @@ def swap_hair(
         hair_region = cv2.dilate(binm, np.ones((3, 3), np.uint8))[..., None] > 0.5
         warped_src = np.where(hair_region, warped_src, swapped)
 
-        # Two-part alpha: a SOLID opaque core (so a wispy hairline can't let the
-        # forehead/old hair show through) PLUS a SOFT outer edge (so the hair
-        # doesn't read as a hard cut-out). max() = opaque inside, soft at the very
-        # outline — and because the outside is now the scene, no halo.
-        core_px = max(3, int(min(h, w) * 0.02))
-        core = cv2.erode(binm, np.ones((core_px, core_px), np.uint8))
+        # Crisp, natural edge: erode to SOLID hair, then feather with a SMALL
+        # kernel so the soft transition sits just INSIDE the hair. This drops the
+        # parser's fuzzy grey edge pixels AND avoids a wide grey band from blending
+        # dark hair into a bright background — the edge stays hair-coloured.
+        er_px = max(2, int(min(h, w) * 0.005))
+        solid = cv2.erode(binm, np.ones((er_px, er_px), np.uint8))
         k = max(3, int(min(h, w) * feather) | 1)        # odd kernel
-        soft = cv2.GaussianBlur(binm, (k, k), 0)
-        warped_mask = np.clip(np.maximum(core, soft), 0.0, 1.0)
+        warped_mask = np.clip(cv2.GaussianBlur(solid, (k, k), 0), 0.0, 1.0)
         alpha = np.stack([warped_mask] * 3, axis=-1)
 
         # Match the source hair's exposure to the target scene before compositing.
@@ -447,8 +446,10 @@ def _match_lighting(src_region, dst, mask):
     out = s.copy()
     for c in range(3):
         sm, dm = s[:, :, c][m].mean(), d[:, :, c][m].mean()
-        # 60% toward the scene's exposure on L, lighter on colour channels
-        w = 0.6 if c == 0 else 0.35
+        # Keep MOST of the source hair's own tone — it's the user's real hair, and
+        # the mask region in `dst` is the bright area the hair now covers, so a
+        # strong match would wash dark hair to grey. Just a gentle exposure nudge.
+        w = 0.25 if c == 0 else 0.15
         out[:, :, c] = s[:, :, c] + (dm - sm) * w
     return cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
