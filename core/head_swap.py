@@ -111,7 +111,7 @@ def swap_hair(
     source: np.ndarray,
     target: np.ndarray,
     include_face: bool = False,
-    feather: float = 0.01,
+    feather: float = 0.025,
 ) -> np.ndarray:
     """
     Transplant the source's hair onto the face-swapped result.
