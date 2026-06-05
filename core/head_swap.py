@@ -111,7 +111,7 @@ def swap_hair(
     source: np.ndarray,
     target: np.ndarray,
     include_face: bool = False,
-    feather: float = 0.04,
+    feather: float = 0.018,
 ) -> np.ndarray:
     """
     Transplant the source's hair onto the face-swapped result.
@@ -193,11 +193,19 @@ def swap_hair(
         # hair — otherwise the Gaussian expands it outward and pulls the source's
         # background in past the hairline (a bright halo above the head).
         binm = (warped_mask > 0.5).astype(np.float32)
-        # Two-part alpha: a SOLID opaque core (so a wispy HairFastGAN hairline
-        # can't let the forehead/old hair show through) PLUS a SOFT outer edge (so
-        # the hair doesn't read as a hard cut-out against the background). The core
-        # is the mask eroded inward; the soft edge is the feathered full mask; the
-        # max of the two = opaque inside, gently fading at the very outline.
+
+        # KILL THE GREY HALO: the HairFastGAN portrait has flat grey padding around
+        # the head, and warpAffine leaves black outside it. If we feather straight
+        # over that, the soft hair edge blends hair -> grey/black and reads as a
+        # blurry "pasted" halo. So first replace everything outside the hair with
+        # the actual SCENE — now the feathered edge blends hair -> scene, naturally.
+        hair_region = cv2.dilate(binm, np.ones((3, 3), np.uint8))[..., None] > 0.5
+        warped_src = np.where(hair_region, warped_src, swapped)
+
+        # Two-part alpha: a SOLID opaque core (so a wispy hairline can't let the
+        # forehead/old hair show through) PLUS a SOFT outer edge (so the hair
+        # doesn't read as a hard cut-out). max() = opaque inside, soft at the very
+        # outline — and because the outside is now the scene, no halo.
         core_px = max(3, int(min(h, w) * 0.02))
         core = cv2.erode(binm, np.ones((core_px, core_px), np.uint8))
         k = max(3, int(min(h, w) * feather) | 1)        # odd kernel
