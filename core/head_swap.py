@@ -513,6 +513,55 @@ def transfer_glasses(swapped: np.ndarray, source: np.ndarray,
         return swapped
 
 
+def harmonize_to_scene(result, target, face_bbox, grain=1.0):
+    """
+    Make the swapped HEAD look PHOTOGRAPHED WITH the scene, not pasted on it.
+
+    The GAN-restored face and the HairFastGAN hair come out unnaturally SMOOTH,
+    while the target is a real photo with sensor grain + a colour cast. That
+    mismatch is exactly what reads as 'synthetic hair' and 'pasted head'. We:
+      1. estimate the scene's luminance grain and add a matching amount over the
+         head region — this de-smooths the GAN hair/skin so it matches the photo;
+      2. nudge the head's overall colour cast toward the scene's (gentle), so the
+         white-balance/tone of the head agrees with the room.
+    Confined to a feathered head box so the body/background are untouched.
+    """
+    h, w = result.shape[:2]
+    res = result.astype(np.float32)
+
+    x1, y1, x2, y2 = [int(v) for v in face_bbox]
+    bw, bh = x2 - x1, y2 - y1
+    mask = np.zeros((h, w), np.float32)
+    rx1 = max(0, x1 - int(bw * 1.25)); ry1 = max(0, y1 - int(bh * 1.6))
+    rx2 = min(w, x2 + int(bw * 1.25)); ry2 = min(h, y2 + int(bh * 1.2))
+    mask[ry1:ry2, rx1:rx2] = 1.0
+    mask = cv2.GaussianBlur(mask, (0, 0), max(2.0, min(h, w) * 0.02))
+    m3 = mask[..., None]
+
+    # (1) match the scene's grain (estimated from the target's high-freq luminance)
+    try:
+        g = cv2.cvtColor(target, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        grain_std = float(np.clip(np.std(g - cv2.GaussianBlur(g, (0, 0), 1.6)),
+                                  2.5, 8.0)) * grain
+        noise = np.random.randn(h, w).astype(np.float32) * grain_std
+        res = res + noise[..., None] * m3
+    except Exception:
+        pass
+
+    # (2) gentle colour-cast harmonisation: shift the head's mean toward the scene's
+    try:
+        sel = mask > 0.4
+        if int(sel.sum()) > 200:
+            head_mean = res[sel].reshape(-1, 3).mean(0)
+            scene_mean = target.astype(np.float32).reshape(-1, 3).mean(0)
+            cast = (scene_mean - head_mean) * 0.12      # subtle
+            res = res + cast[None, None, :] * m3
+    except Exception:
+        pass
+
+    return np.clip(res, 0, 255).astype(np.uint8)
+
+
 def _match_lighting(src_region, dst, mask):
     """Shift src_region's mean LAB toward dst inside mask (match scene exposure,
     keep most of the source's own colour). Returns a lit-corrected src_region."""

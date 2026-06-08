@@ -38,7 +38,7 @@ from core.swapper import swap_face_insightface
 from core.skin_tone import analyze_skin_tone
 from core.super_res import restore_faces, upscale_image
 from core.head_swap import (swap_hair, match_skin_to_source, transfer_glasses,
-                            full_head_swap)
+                            full_head_swap, harmonize_to_scene)
 from core.hair_transfer import transfer_hair
 from core.blender import laplacian_blend
 from core.quality_checker import compute_quality_score
@@ -804,6 +804,15 @@ def api_swap():
             )
         except Exception as e:
             print(f"[swap] skin tone match skipped: {e}")
+
+        # 8. HARMONISE — make the swapped head look PHOTOGRAPHED WITH the scene
+        #    (not pasted on it): add the photo's grain over the GAN-smooth face/hair
+        #    and gently match its colour cast. This is the last visual step, so the
+        #    grain isn't smoothed away by anything after it.
+        try:
+            swapped = harmonize_to_scene(swapped, target, faces_tgt[0], grain=0.9)
+        except Exception as e:
+            print(f"[swap] harmonize skipped: {e}")
 
         # -- quality metrics --------------------------------------------------
         quality = compute_quality_score(swapped, target, None, None)
