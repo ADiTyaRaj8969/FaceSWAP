@@ -76,3 +76,4 @@ tests/faces/**/*.jpg
 tests/faces/**/*.jpeg
 tests/faces/**/*.png
 tests/faces/**/*.webp
+tests/batch/

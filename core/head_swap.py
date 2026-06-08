@@ -253,10 +253,13 @@ def swap_hair(
             # AND the edge stays wispy.
             hsv = cv2.cvtColor(np.clip(warped_src, 0, 255).astype(np.uint8),
                                cv2.COLOR_BGR2HSV)
-            grey = ((hsv[:, :, 1] < 46) & (hsv[:, :, 2] > 95) &
-                    (hsv[:, :, 2] < 185)).astype(np.float32)
-            soft_zone = (am < 0.85).astype(np.float32)
-            am = am * (1.0 - 0.9 * grey * soft_zone)
+            grey = ((hsv[:, :, 1] < 32) & (hsv[:, :, 2] > 105) &
+                    (hsv[:, :, 2] < 160)).astype(np.float32)
+            # Only the VERY faint edge (am < 0.45) — so we trim the portrait's grey
+            # padding tail but never cut into semi-solid hair (lit/highlighted or
+            # grey-streaked real hair has a higher matte and must be kept).
+            soft_zone = (am < 0.45).astype(np.float32)
+            am = am * (1.0 - 0.85 * grey * soft_zone)
             warped_mask = np.clip(cv2.GaussianBlur(am, (3, 3), 0), 0.0, 1.0)
         else:
             # Head-swap path: erode to solid hair, then a small feather.
@@ -521,11 +524,14 @@ def _match_lighting(src_region, dst, mask):
     out = s.copy()
     for c in range(3):
         sm, dm = s[:, :, c][m].mean(), d[:, :, c][m].mean()
-        # Keep MOST of the source hair's own tone — it's the user's real hair, and
-        # the mask region in `dst` is the bright area the hair now covers, so a
-        # strong match would wash dark hair to grey. Just a gentle exposure nudge.
-        w = 0.25 if c == 0 else 0.15
-        out[:, :, c] = s[:, :, c] + (dm - sm) * w
+        if c == 0:
+            # L (brightness): ONLY allow DARKENING toward a dim scene — never
+            # brighten dark hair toward the bright wall it now covers, which washes
+            # it out to grey/silver (the artefact seen on bright backgrounds).
+            out[:, :, c] = s[:, :, c] + min(0.0, dm - sm) * 0.35
+        else:
+            # a/b (colour): gentle nudge so the hair picks up the scene's cast.
+            out[:, :, c] = s[:, :, c] + (dm - sm) * 0.12
     return cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
 
