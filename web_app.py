@@ -16,6 +16,7 @@ os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 import io
 import re
 import base64
+import threading
 import traceback
 import mimetypes
 
@@ -236,7 +237,7 @@ def _resolve_or_create_location(gender: str, location_name: str, create: bool = 
 
 app = Flask(__name__, static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
-_debug_mode = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
+_debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
 CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"] if _debug_mode else "*")
 
 # Nothing is written to disk — uploads are decoded in memory and the result is
@@ -897,9 +898,15 @@ def _prewarm_models():
 
 
 if __name__ == "__main__":
-    port  = int(os.environ.get("PORT", 5000))
-    debug = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
+    port = int(os.environ.get("PORT", 5000))
+    # Defaults to OFF: nothing sets FLASK_DEBUG on the deployed Space, and a
+    # true default there serves the Werkzeug debugger on the public internet.
+    # Opt in locally with FLASK_DEBUG=true.
+    debug = _debug_mode
     print(f"Starting Face Swap Web App on port {port}...")
     if not debug:
-        _prewarm_models()
+        # In a daemon thread so the port binds immediately — startup.sh
+        # backgrounds the model downloads for the same reason (HF Spaces kills
+        # a container that doesn't answer on its port within ~60s).
+        threading.Thread(target=_prewarm_models, daemon=True).start()
     app.run(debug=debug, use_reloader=False, host="0.0.0.0", port=port)
