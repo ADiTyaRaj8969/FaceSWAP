@@ -175,6 +175,11 @@ export default function AppPage() {
   const [stream,    setStream]    = useState(null);
   const [camActive, setCamActive] = useState(false);
 
+  // Head swap transplants the source's whole head — shape + hair — instead of
+  // only the inner face, then blends hair, neck and background into the scene.
+  // Off by default: it changes more of the photo, so it's a deliberate choice.
+  const [headSwap, setHeadSwap] = useState(false);
+
   const [swapping, setSwapping] = useState(false);
   const [progress, setProgress] = useState(0);
   const [pLabel,   setPLabel]   = useState('');
@@ -271,31 +276,62 @@ export default function AppPage() {
     if (!srcFile && !srcB64)   return setToast('Please provide your photo.');
     if (!location)             return setToast('Please choose a location.');
 
-    setSwapping(true); setResult(null); setProgress(5); setPLabel('Initialising...');
+    setSwapping(true); setResult(null); setProgress(2); setPLabel(STAGES[0][1]);
 
-    let idx = 0;
-    const timer = setInterval(() => {
-      if (idx < STAGES.length) { const [p,l] = STAGES[idx++]; setProgress(p); setPLabel(l); }
-    }, 1100);
+    // The progress BAR tracks the server's real stage, but the caption keeps
+    // cycling the motivational copy — the swap now runs for minutes, so there's
+    // more of that wait to fill, not less.
+    let msgIdx = 0;
+    const msgTimer = setInterval(() => {
+      msgIdx = (msgIdx + 1) % STAGES.length;
+      setPLabel(STAGES[msgIdx][1]);
+    }, 4000);
 
     const fd = new FormData();
     if (srcFile) fd.append('source_file', srcFile); else fd.append('source_b64', srcB64);
     fd.append('name', name.trim());
     fd.append('gender', gender);
     fd.append('location', location);
+    fd.append('head_swap', headSwap ? '1' : '0');
 
     try {
+      // The full-quality pipeline runs for minutes on the free CPU tier, far
+      // longer than a request can stay open, so the server hands back a job id
+      // and we poll it for real progress instead of animating a guess.
       const resp = await fetch('/api/swap', { method: 'POST', body: fd });
       const text = await resp.text();
       let data;
       try { data = JSON.parse(text); }
       catch { throw new Error(`Server error ${resp.status}: ${text.slice(0, 120)}`); }
-      clearInterval(timer);
-      if (!data.ok) { setToast(data.error || 'Swap failed.'); setSwapping(false); return; }
-      setProgress(100); setPLabel('Done!');
-      setTimeout(() => { setResult(data); setSwapping(false); }, 400);
+      if (!data.ok || !data.job_id) {
+        clearInterval(msgTimer);
+        setToast(data.error || 'Swap failed.'); setSwapping(false); return;
+      }
+
+      const jobId = data.job_id;
+      for (;;) {
+        await new Promise(r => setTimeout(r, 2000));
+        let s;
+        try {
+          const sr = await fetch(`/api/swap/status/${jobId}`, { cache: 'no-store' });
+          s = await sr.json();
+        } catch {
+          continue;              // transient network blip — keep polling
+        }
+        if (s.state === 'error' || s.ok === false) {
+          clearInterval(msgTimer);
+          setToast(s.error || 'Swap failed.'); setSwapping(false); return;
+        }
+        if (s.state === 'done') {
+          clearInterval(msgTimer);
+          setProgress(100); setPLabel('Done!');
+          setTimeout(() => { setResult(s); setSwapping(false); }, 400);
+          return;
+        }
+        if (typeof s.progress === 'number') setProgress(s.progress);
+      }
     } catch (e) {
-      clearInterval(timer);
+      clearInterval(msgTimer);
       setToast('Network error: ' + e.message);
       setSwapping(false);
     }
@@ -336,6 +372,30 @@ export default function AppPage() {
             <polyline points="9 22 9 12 15 12 15 22"/>
           </svg>
           Home
+        </button>
+
+        {/* Head Swap toggle — opposite corner to Home. Swaps the whole head
+            (shape + hair) instead of just the face, blending hair, neck and
+            background into the scene. */}
+        <button onClick={() => setHeadSwap(v => !v)} disabled={swapping}
+          title={headSwap
+            ? 'Head swap ON - transplants your whole head (shape + hair) and blends hair, neck and background'
+            : 'Head swap OFF - swaps the face only, keeping the photo\'s hair'}
+          aria-pressed={headSwap}
+          className={`absolute top-4 right-4 sm:top-6 sm:right-6 z-50 flex items-center gap-2 text-xs sm:text-sm rounded-lg px-3 sm:px-4 py-1.5 sm:py-2 border backdrop-blur-md transition-all duration-200 whitespace-nowrap font-bold shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed ${
+            headSwap
+              ? 'bg-teal text-white border-teal hover:bg-teal-dark'
+              : 'bg-white/90 text-navy border-border/60 hover:border-teal/50 hover:bg-white'}`}>
+          <svg className={`w-4 h-4 shrink-0 ${headSwap ? 'text-white' : 'text-teal'}`}
+               fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <circle cx="12" cy="8" r="4"/>
+            <path d="M5.5 21a6.5 6.5 0 0 1 13 0"/>
+          </svg>
+          Head Swap
+          <span className={`ml-0.5 text-[10px] font-extrabold rounded px-1.5 py-0.5 ${
+            headSwap ? 'bg-white/25 text-white' : 'bg-bg3 text-slate'}`}>
+            {headSwap ? 'ON' : 'OFF'}
+          </span>
         </button>
 
         <main className="flex-1 w-full max-w-5xl mx-auto px-3 sm:px-6 pt-14 sm:pt-16 pb-6 flex flex-col gap-3.5 sm:gap-4">

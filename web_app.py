@@ -15,6 +15,8 @@ except Exception:
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 import io
 import re
+import time
+import uuid
 import base64
 import threading
 import traceback
@@ -607,15 +609,117 @@ def api_detect():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+class SwapError(Exception):
+    """A user-facing problem with the inputs (no face found, undecodable, …)."""
+
+
+class _JobStore:
+    """
+    Background jobs for /api/swap.
+
+    The full-quality pipeline runs for minutes on the free CPU tier — head
+    super-resolution alone is ~6 minutes — which no HTTP request survives. So a
+    swap is submitted, run on a worker thread, and polled for.
+
+    Jobs run ONE AT A TIME. The Space has 2 vCPUs and the models are already
+    saturating them; overlapping swaps would only make every one of them slower.
+    Results hold multi-MB base64 images, so finished jobs are dropped after a
+    TTL and the store is capped.
+    """
+    TTL_SECONDS = 20 * 60
+    MAX_JOBS = 40
+
+    def __init__(self):
+        self._jobs = {}
+        self._lock = threading.Lock()
+        self._run_lock = threading.Lock()   # serialises the actual work
+
+    def _prune(self):
+        now = time.time()
+        stale = [k for k, j in self._jobs.items()
+                 if now - j["updated"] > self.TTL_SECONDS]
+        for k in stale:
+            self._jobs.pop(k, None)
+        if len(self._jobs) > self.MAX_JOBS:
+            for k in sorted(self._jobs, key=lambda k: self._jobs[k]["updated"]
+                            )[:len(self._jobs) - self.MAX_JOBS]:
+                self._jobs.pop(k, None)
+
+    def submit(self, source, target, opts):
+        job_id = uuid.uuid4().hex
+        with self._lock:
+            self._prune()
+            self._jobs[job_id] = {"state": "queued", "progress": 0,
+                                  "message": "Queued…", "result": None,
+                                  "error": None, "updated": time.time()}
+        threading.Thread(target=self._run, args=(job_id, source, target, opts),
+                         daemon=True).start()
+        return job_id
+
+    def _set(self, job_id, **kw):
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is not None:
+                job.update(kw)
+                job["updated"] = time.time()
+
+    def _run(self, job_id, source, target, opts):
+        def progress(pct, msg):
+            self._set(job_id, state="running", progress=int(pct), message=msg)
+
+        with self._run_lock:
+            try:
+                progress(2, "Starting…")
+                result = _perform_swap(source, target, opts, progress)
+                self._set(job_id, state="done", progress=100,
+                          message="Done", result=result)
+            except SwapError as e:
+                self._set(job_id, state="error", message=str(e), error=str(e))
+            except Exception as e:
+                traceback.print_exc()
+                self._set(job_id, state="error", message=str(e), error=str(e))
+
+    def get(self, job_id):
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return dict(job) if job else None
+
+
+_jobs = _JobStore()
+
+
+@app.route("/api/swap/status/<job_id>", methods=["GET"])
+def api_swap_status(job_id):
+    """
+    Poll a submitted swap. While running returns state/progress/message; once
+    done the full result is returned in the same shape the old synchronous
+    /api/swap used, so the client renders it identically.
+    """
+    job = _jobs.get(job_id)
+    if job is None:
+        return jsonify({"ok": False, "error": "Unknown or expired job."}), 404
+    if job["state"] == "done":
+        resp = jsonify({"ok": True, "state": "done", "progress": 100,
+                        **(job["result"] or {})})
+    elif job["state"] == "error":
+        resp = jsonify({"ok": False, "state": "error",
+                        "error": job["error"] or "Swap failed."})
+    else:
+        resp = jsonify({"ok": True, "state": job["state"],
+                        "progress": job["progress"], "message": job["message"]})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @app.route("/api/swap", methods=["POST"])
 def api_swap():
     """
-    Full face-swap pipeline: InsightFace swap → GFPGAN face restoration →
-    RealESRGAN 4K upscale (for download).
+    Submit a face swap. Returns 202 with a job_id — poll
+    /api/swap/status/<job_id> for progress and the result.
+
     Accepts multipart/form-data:
       - source_file  (file)  OR  source_b64 (string)  - source face
-      - target_file  (file)                            - target face
-    Returns JSON with result_image (base64), quality metrics, delta_e.
+      - target_file  (file)  OR  gender + location    - target scene
     """
     try:
         # -- decode source ----------------------------------------------------
@@ -660,8 +764,31 @@ def api_swap():
         if source is None or target is None:
             return jsonify({"ok": False, "error": "Could not decode one or both images"}), 400
 
-        user_name = (request.form.get("name") or "").strip()
+        opts = {
+            "name":         (request.form.get("name") or "").strip(),
+            "head_swap":    request.form.get("head_swap", "0"),
+            "swap_hair":    request.form.get("swap_hair", "1"),
+            "keep_glasses": request.form.get("keep_glasses", "1"),
+        }
+        job_id = _jobs.submit(source, target, opts)
+        return jsonify({"ok": True, "job_id": job_id, "state": "queued"}), 202
 
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _perform_swap(source, target, opts, progress=None):
+    """
+    The swap pipeline. Runs on a worker thread with no request context, so it
+    takes plain options and returns a plain dict; input problems raise
+    SwapError. `progress(pct, message)` drives the client's progress bar.
+    """
+    def note(pct, msg):
+        if progress:
+            progress(pct, msg)
+
+    try:
         # -- resize -----------------------------------------------------------
         # Working resolution: 1536 on GPU (sharper composite + better landmarks;
         # the RTX-class card handles it easily) and 1024 on CPU to stay fast.
@@ -691,21 +818,23 @@ def api_swap():
 
         # -- enhance inputs (upscale small + GFPGAN restore) so detail isn't
         #    lost through the pipeline; the output is enhanced again at the end.
+        note(8, "Preparing images…")
         source = _enhance_input(source)
         target = _enhance_input(target)
 
         # -- face detection ---------------------------------------------------
+        note(15, "Detecting faces…")
         faces_src = _safe_detect(source)
         faces_tgt = _safe_detect(target)
         if not faces_src:
-            return jsonify({"ok": False, "error":
+            raise SwapError(
                 "No face detected in source image. Tips: ensure good lighting, "
                 "face the camera directly, remove heavy occlusions (mask/sunglasses), "
-                "and use a photo where the face is at least 10% of the frame."}), 400
+                "and use a photo where the face is at least 10% of the frame.")
         if not faces_tgt:
-            return jsonify({"ok": False, "error":
+            raise SwapError(
                 "No face detected in target image. Tips: ensure good lighting, "
-                "face the camera directly, and use a clear frontal portrait."}), 400
+                "face the camera directly, and use a clear frontal portrait.")
 
         # -- warn on very small detected faces (quality will be poor) ---------
         warnings = []
@@ -740,7 +869,7 @@ def api_swap():
         #
         # 1. (optional) HEAD SWAP — transplant the source head shape+hair.
         base = target
-        if request.form.get("head_swap", "0") in ("1", "true", "on"):
+        if opts.get("head_swap", "0") in ("1", "true", "on"):
             try:
                 hs = full_head_swap(source, target)
                 if hs is not None:
@@ -750,9 +879,11 @@ def api_swap():
 
         # 2. FACE SWAP — the main event. Source identity onto the main face only
         #    (background/poster faces are never swapped).
+        note(28, "Swapping face…")
         swapped = swap_face_insightface(source, base)
 
         # 3. GFPGAN face restoration — recovers detail lost in the 128px swap.
+        note(40, "Restoring facial detail…")
         swapped = restore_faces(swapped)
 
         # 3b. Laplacian pyramid blend over the FACE-swap boundary — smooths the
@@ -760,6 +891,7 @@ def api_swap():
         #     it composites the swapped FACE over the target everywhere else, so if
         #     it ran after the hair it would overwrite the newly-transferred hair
         #     (which lies outside the face mask) with the target's original hair.
+        note(50, "Blending the seam…")
         try:
             from core.segmentor import segment_hair_neck_skin
             _fmask = segment_hair_neck_skin(swapped).get("face_mask")
@@ -775,7 +907,8 @@ def api_swap():
         #    composites the FULL long hair back into the scene (the parse crop +
         #    region clamp were widened so long hair is no longer cut off). ON by
         #    default (set swap_hair=0 for a fast face-only swap).
-        if request.form.get("swap_hair", "1") in ("1", "true", "on"):
+        if opts.get("swap_hair", "1") in ("1", "true", "on"):
+            note(58, "Transferring hair…")
             hf_portrait = None
             try:
                 hf_portrait = transfer_hair(face_bgr=swapped, shape_bgr=source,
@@ -794,7 +927,7 @@ def api_swap():
                 print(f"[swap] hair compose error: {e}")
 
         # 6. Glasses (no-op if the source isn't wearing any).
-        if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
+        if opts.get("keep_glasses", "1") in ("1", "true", "on"):
             try:
                 swapped = transfer_glasses(swapped, source)
             except Exception as e:
@@ -804,6 +937,7 @@ def api_swap():
         #    visible skin (face + neck + arms + hands) to the SOURCE complexion;
         #    clothes/background are excluded. Done AFTER the Laplacian blend so the
         #    blend can't pull the face colour back toward the target's tone.
+        note(72, "Matching skin tone…")
         try:
             swapped = match_skin_to_source(
                 swapped, source, faces_src[0], faces_tgt[0], strength=0.92
@@ -815,6 +949,7 @@ def api_swap():
         # Scored BEFORE step 8 below: that step adds deliberate grain/noise for
         # visual realism, which would otherwise inflate the noise/discontinuity
         # penalties in compute_quality_score and understate the swap's real quality.
+        note(78, "Scoring quality…")
         quality = compute_quality_score(swapped, target, None, None)
 
         # Real alignment: how closely the swapped face's 5 landmarks sit on the
@@ -864,6 +999,7 @@ def api_swap():
         # 9. Paste the changed region back onto the FULL-RESOLUTION target so the
         #    background and body keep the original photo's detail rather than the
         #    downscaled-then-interpolated version. No-op if nothing was resized.
+        note(84, "Restoring full-resolution background…")
         _work_h, _work_w = swapped.shape[:2]
         try:
             swapped = composite_onto_original(swapped, target, target_orig)
@@ -881,6 +1017,7 @@ def api_swap():
             _sr_bbox = (x1 * _fs, y1 * _fs, x2 * _fs, y2 * _fs)
         except Exception:
             pass
+        note(88, "Enhancing to 4K (this is the slow part)…")
         hi_res = upscale_image(swapped, scale=4, focus_bbox=_sr_bbox)
 
         # The 4K result is returned inline as a base64 data-URI so the user can
@@ -888,8 +1025,8 @@ def api_swap():
         # server-side — nothing is written to disk (privacy + no disk growth).
         download_uri = _encode_image(hi_res, fmt="JPEG", quality=95)
 
-        return jsonify({
-            "ok": True,
+        note(100, "Done")
+        return {
             "result_image": _encode_image(swapped, fmt="JPEG", quality=92),
             "download_image": download_uri,
             "quality": quality,
@@ -897,12 +1034,14 @@ def api_swap():
             "src_tone": src_tone,
             "tgt_tone": tgt_tone,
             "warnings": warnings,
-            "name": user_name,
-        })
+            "name": opts.get("name", ""),
+        }
 
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+    except SwapError:
+        raise                      # user-facing input problem — reported as-is
+    except Exception:
+        traceback.print_exc()      # log where it actually broke, then surface it
+        raise
 
 
 def _prewarm_models():
