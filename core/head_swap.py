@@ -532,8 +532,13 @@ def harmonize_to_scene(result, target, face_bbox, grain=1.0):
     x1, y1, x2, y2 = [int(v) for v in face_bbox]
     bw, bh = x2 - x1, y2 - y1
     mask = np.zeros((h, w), np.float32)
+    # Down reach covers hair past the shoulders (~mid-torso). At the old 1.2 the
+    # lower half of long transplanted hair fell outside the mask and kept the
+    # GAN-smooth look this function exists to remove; swap_hair itself clamps
+    # hair as far as tbh*5.0, but masking that far mostly grains background in
+    # wide shots, so this stops short of it.
     rx1 = max(0, x1 - int(bw * 1.25)); ry1 = max(0, y1 - int(bh * 1.6))
-    rx2 = min(w, x2 + int(bw * 1.25)); ry2 = min(h, y2 + int(bh * 1.2))
+    rx2 = min(w, x2 + int(bw * 1.25)); ry2 = min(h, y2 + int(bh * 3.0))
     mask[ry1:ry2, rx1:rx2] = 1.0
     mask = cv2.GaussianBlur(mask, (0, 0), max(2.0, min(h, w) * 0.02))
     m3 = mask[..., None]
@@ -545,19 +550,34 @@ def harmonize_to_scene(result, target, face_bbox, grain=1.0):
                                   2.5, 8.0)) * grain
         noise = np.random.randn(h, w).astype(np.float32) * grain_std
         res = res + noise[..., None] * m3
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[head_swap] harmonize grain skipped: {e}")
 
-    # (2) gentle colour-cast harmonisation: shift the head's mean toward the scene's
+    # (2) gentle colour-cast harmonisation: shift the head's mean toward the
+    # scene's — sampled OUTSIDE the head mask (the surrounding scene), never from
+    # inside it. `target` still shows the ORIGINAL target face (never overwritten
+    # by the swap), so sampling the whole frame would pull the head's colour back
+    # toward the target's own skin tone, undoing match_skin_to_source which runs
+    # immediately before this step. LAB's L channel is darken-only, mirroring
+    # _match_lighting's rule, so this can't wash hair/skin out to grey/silver
+    # against a bright background.
     try:
         sel = mask > 0.4
-        if int(sel.sum()) > 200:
-            head_mean = res[sel].reshape(-1, 3).mean(0)
-            scene_mean = target.astype(np.float32).reshape(-1, 3).mean(0)
-            cast = (scene_mean - head_mean) * 0.12      # subtle
-            res = res + cast[None, None, :] * m3
-    except Exception:
-        pass
+        bg_sel = mask < 0.05
+        if int(sel.sum()) > 200 and int(bg_sel.sum()) > 200:
+            head_lab = cv2.cvtColor(np.clip(res, 0, 255).astype(np.uint8),
+                                    cv2.COLOR_BGR2LAB).astype(np.float32)
+            scene_lab = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype(np.float32)
+            head_mean = head_lab[sel].reshape(-1, 3).mean(0)
+            scene_mean = scene_lab[bg_sel].reshape(-1, 3).mean(0)
+            cast = np.zeros(3, np.float32)
+            cast[0] = min(0.0, scene_mean[0] - head_mean[0]) * 0.35     # L: darken-only
+            cast[1:] = (scene_mean[1:] - head_mean[1:]) * 0.12          # a/b: gentle nudge
+            out_lab = head_lab + cast[None, None, :] * m3
+            res = cv2.cvtColor(np.clip(out_lab, 0, 255).astype(np.uint8),
+                               cv2.COLOR_LAB2BGR).astype(np.float32)
+    except Exception as e:
+        print(f"[head_swap] harmonize colour-cast skipped: {e}")
 
     return np.clip(res, 0, 255).astype(np.uint8)
 

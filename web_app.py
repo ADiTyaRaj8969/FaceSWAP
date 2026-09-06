@@ -805,16 +805,10 @@ def api_swap():
         except Exception as e:
             print(f"[swap] skin tone match skipped: {e}")
 
-        # 8. HARMONISE — make the swapped head look PHOTOGRAPHED WITH the scene
-        #    (not pasted on it): add the photo's grain over the GAN-smooth face/hair
-        #    and gently match its colour cast. This is the last visual step, so the
-        #    grain isn't smoothed away by anything after it.
-        try:
-            swapped = harmonize_to_scene(swapped, target, faces_tgt[0], grain=0.9)
-        except Exception as e:
-            print(f"[swap] harmonize skipped: {e}")
-
         # -- quality metrics --------------------------------------------------
+        # Scored BEFORE step 8 below: that step adds deliberate grain/noise for
+        # visual realism, which would otherwise inflate the noise/discontinuity
+        # penalties in compute_quality_score and understate the swap's real quality.
         quality = compute_quality_score(swapped, target, None, None)
 
         # Real alignment: how closely the swapped face's 5 landmarks sit on the
@@ -850,6 +844,16 @@ def api_swap():
                     quality["naturalness"] = _naturalness_score(face)
         except Exception as e:
             print(f"[swap] alignment metric skipped: {e}")
+
+        # 8. HARMONISE — make the swapped head look PHOTOGRAPHED WITH the scene
+        #    (not pasted on it): add the photo's grain over the GAN-smooth face/hair
+        #    and gently match its colour cast. Runs AFTER quality scoring (so the
+        #    added grain doesn't skew the naturalness/blend metrics) but still last
+        #    before the output is encoded, so nothing smooths the grain away.
+        try:
+            swapped = harmonize_to_scene(swapped, target, faces_tgt[0], grain=0.9)
+        except Exception as e:
+            print(f"[swap] harmonize skipped: {e}")
 
         # -- 4K upscale for download (RealESRGAN x4, Lanczos fallback) --------
         hi_res = upscale_image(swapped, scale=4)
