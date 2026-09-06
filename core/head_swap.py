@@ -529,18 +529,38 @@ def harmonize_to_scene(result, target, face_bbox, grain=1.0):
     h, w = result.shape[:2]
     res = result.astype(np.float32)
 
+    # Grain must land on the HEAD, not on a rectangle around it. A box sprays
+    # noise over whatever shares its bounds — background, shelves, clothing —
+    # which dirties the scene and leaves the box's own feathered edge visible.
+    # So parse the actual head/hair/neck shape and clamp it to a generous head
+    # box, which keeps stray parse specks elsewhere from picking up grain.
     x1, y1, x2, y2 = [int(v) for v in face_bbox]
     bw, bh = x2 - x1, y2 - y1
-    mask = np.zeros((h, w), np.float32)
-    # Down reach covers hair past the shoulders (~mid-torso). At the old 1.2 the
-    # lower half of long transplanted hair fell outside the mask and kept the
-    # GAN-smooth look this function exists to remove; swap_hair itself clamps
-    # hair as far as tbh*5.0, but masking that far mostly grains background in
-    # wide shots, so this stops short of it.
+    box = np.zeros((h, w), np.float32)
     rx1 = max(0, x1 - int(bw * 1.25)); ry1 = max(0, y1 - int(bh * 1.6))
     rx2 = min(w, x2 + int(bw * 1.25)); ry2 = min(h, y2 + int(bh * 3.0))
-    mask[ry1:ry2, rx1:rx2] = 1.0
-    mask = cv2.GaussianBlur(mask, (0, 0), max(2.0, min(h, w) * 0.02))
+    box[ry1:ry2, rx1:rx2] = 1.0
+
+    mask = None
+    try:
+        # Same generous crop as the hair matte so long hair is parsed, not cut.
+        # Class 18 (hat) is included HERE only: the parser labels part of the
+        # hair as hat, and while that misfire matters when transferring hair
+        # (_HEAD_CLASSES rightly drops it), leaving it out here punches an
+        # ungrained hole in the top of the head.
+        parsed = _parse_region_mask(result, face_bbox,
+                                    _HEAD_CLASSES | _NECK_ONLY_CLASSES | {18},
+                                    up=1.0, down=2.6, side=1.4)
+        if parsed.max() > 0:
+            mask = parsed * box
+    except Exception as e:
+        print(f"[head_swap] harmonize parse failed, falling back to head box: {e}")
+    if mask is None or mask.max() <= 0:
+        mask = box
+
+    # Small feather: enough to fade at the hairline, not so wide it bleeds the
+    # grain back out into the scene the way the old box-sized blur did.
+    mask = cv2.GaussianBlur(mask, (0, 0), max(1.5, min(h, w) * 0.006))
     m3 = mask[..., None]
 
     # (1) match the scene's grain (estimated from the target's high-freq luminance)
