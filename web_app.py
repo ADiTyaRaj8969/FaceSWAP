@@ -44,7 +44,7 @@ from core.hair_transfer import transfer_hair
 from core.blender import laplacian_blend
 from core.quality_checker import compute_quality_score
 from core import supabase_store
-from utils.image_io import resize_keep_aspect
+from utils.image_io import resize_keep_aspect, composite_onto_original
 
 REACT_BUILD   = os.path.join("static", "react")
 LOCATIONS_DIR = "Location"            # Location/Male/<loc>/img  +  Location/Female/<loc>/img
@@ -669,6 +669,11 @@ def api_swap():
         # larger canvas mainly helps the final blend + the RealESRGAN 4x upscale.
         from core.super_res import _device as _sr_device
         _work_res = 1536 if _sr_device() == "cuda" else 1024
+        # Keep the untouched full-resolution target: at the end only the region
+        # the pipeline actually changed is pasted back onto it, so background and
+        # body keep the original photo's detail instead of being downscaled here
+        # and interpolated back up by the 4x pass.
+        target_orig = target
         source = resize_keep_aspect(source, _work_res)
         target = resize_keep_aspect(target, _work_res)
 
@@ -855,6 +860,14 @@ def api_swap():
             swapped = harmonize_to_scene(swapped, target, faces_tgt[0], grain=0.9)
         except Exception as e:
             print(f"[swap] harmonize skipped: {e}")
+
+        # 9. Paste the changed region back onto the FULL-RESOLUTION target so the
+        #    background and body keep the original photo's detail rather than the
+        #    downscaled-then-interpolated version. No-op if nothing was resized.
+        try:
+            swapped = composite_onto_original(swapped, target, target_orig)
+        except Exception as e:
+            print(f"[swap] original-resolution composite skipped: {e}")
 
         # -- 4K upscale for download (RealESRGAN x4, Lanczos fallback) --------
         hi_res = upscale_image(swapped, scale=4)
