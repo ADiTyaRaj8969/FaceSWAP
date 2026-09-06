@@ -864,13 +864,24 @@ def api_swap():
         # 9. Paste the changed region back onto the FULL-RESOLUTION target so the
         #    background and body keep the original photo's detail rather than the
         #    downscaled-then-interpolated version. No-op if nothing was resized.
+        _work_h, _work_w = swapped.shape[:2]
         try:
             swapped = composite_onto_original(swapped, target, target_orig)
         except Exception as e:
             print(f"[swap] original-resolution composite skipped: {e}")
 
-        # -- 4K upscale for download (RealESRGAN x4, Lanczos fallback) --------
-        hi_res = upscale_image(swapped, scale=4)
+        # -- 4K upscale for download (RealESRGAN on the head, Lanczos elsewhere)
+        # The head is the only region that came through the swap's 128px
+        # bottleneck; the rest is already native resolution from step 9, so
+        # there's nothing there for a super-resolution model to reconstruct.
+        _sr_bbox = None
+        try:
+            _fs = swapped.shape[1] / float(_work_w)   # working -> composited scale
+            x1, y1, x2, y2 = faces_tgt[0]
+            _sr_bbox = (x1 * _fs, y1 * _fs, x2 * _fs, y2 * _fs)
+        except Exception:
+            pass
+        hi_res = upscale_image(swapped, scale=4, focus_bbox=_sr_bbox)
 
         # The 4K result is returned inline as a base64 data-URI so the user can
         # download it client-side (works on the HF Space too). We do NOT store it

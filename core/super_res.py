@@ -129,41 +129,91 @@ def restore_faces(image: np.ndarray) -> np.ndarray:
 
 
 def upscale_image(image: np.ndarray, scale: int = 4,
-                  realesrgan_weight: float = 0.5) -> np.ndarray:
+                  realesrgan_weight: float = 0.5,
+                  focus_bbox=None) -> np.ndarray:
     """
-    Upscale the whole frame ~scale x for the high-resolution download.
+    Upscale ~scale x for the high-resolution download.
 
     RealESRGAN adds resolution but, being a general-purpose model, it over-sharpens
     skin into a plastic/waxy texture on faces. So we BLEND it with a plain Lanczos
     upscale (realesrgan_weight controls the mix: 0 = pure natural Lanczos, 1 = full
     RealESRGAN) — keeping most of the detail while killing the artificial texture.
 
-    RealESRGAN is only used on GPU — on CPU (e.g. the HuggingFace free tier) a 4x
-    pass is too slow, so we fall back to pure Lanczos there.
+    focus_bbox restricts RealESRGAN to the head region. Everything outside it is
+    now composited from the untouched full-resolution target (see
+    utils.image_io.composite_onto_original), so only the head — which came
+    through the swap's 128x128 bottleneck — has detail worth reconstructing.
+    That matters most on CPU: measured on this pipeline a full 1.57MP frame
+    takes ~20 minutes, while the head crop alone is seconds, which is what makes
+    real super-resolution affordable on the free CPU tier instead of GPU-only.
+    Passing no bbox on CPU keeps the old Lanczos-only behaviour.
     """
     h, w = image.shape[:2]
     lanczos = cv2.resize(image, (w * scale, h * scale),
                          interpolation=cv2.INTER_LANCZOS4)
 
-    if _device() == "cuda":
-        upsampler = _load_realesrgan()
-        if upsampler is not None:
-            try:
-                output, _ = upsampler.enhance(image, outscale=scale)
-                if output is not None:
-                    if output.shape[:2] != lanczos.shape[:2]:
-                        output = cv2.resize(output, (lanczos.shape[1], lanczos.shape[0]),
-                                            interpolation=cv2.INTER_LANCZOS4)
-                    blended = cv2.addWeighted(output, realesrgan_weight,
-                                              lanczos, 1.0 - realesrgan_weight, 0)
-                    print(f"[super_res] RealESRGAN+Lanczos {scale}x -> "
-                          f"{blended.shape[1]}x{blended.shape[0]} (re={realesrgan_weight})")
-                    return blended
-            except Exception as e:
-                print(f"[super_res] RealESRGAN enhance failed: {e}")
+    on_gpu = _device() == "cuda"
+    if not on_gpu and focus_bbox is None:
+        print(f"[super_res] Lanczos {scale}x -> {w*scale}x{h*scale}")
+        return lanczos
 
-    print(f"[super_res] Lanczos {scale}x -> {w*scale}x{h*scale}")
-    return lanczos
+    upsampler = _load_realesrgan()
+    if upsampler is None:
+        print(f"[super_res] Lanczos {scale}x -> {w*scale}x{h*scale}")
+        return lanczos
+
+    try:
+        if focus_bbox is None:
+            output, _ = upsampler.enhance(image, outscale=scale)
+            if output is None:
+                return lanczos
+            if output.shape[:2] != lanczos.shape[:2]:
+                output = cv2.resize(output, (lanczos.shape[1], lanczos.shape[0]),
+                                    interpolation=cv2.INTER_LANCZOS4)
+            blended = cv2.addWeighted(output, realesrgan_weight,
+                                      lanczos, 1.0 - realesrgan_weight, 0)
+            print(f"[super_res] RealESRGAN+Lanczos {scale}x -> "
+                  f"{blended.shape[1]}x{blended.shape[0]} (re={realesrgan_weight})")
+            return blended
+
+        # -- head-only super-resolution ------------------------------------
+        x1, y1, x2, y2 = [int(v) for v in focus_bbox]
+        bw, bh = x2 - x1, y2 - y1
+        # Generous margin so hair and jaw are reconstructed with the face, and
+        # the feathered seam lands on background rather than on skin.
+        cx1 = max(0, x1 - int(bw * 1.0)); cy1 = max(0, y1 - int(bh * 1.2))
+        cx2 = min(w, x2 + int(bw * 1.0)); cy2 = min(h, y2 + int(bh * 1.6))
+        crop = image[cy1:cy2, cx1:cx2]
+        if crop.size == 0:
+            return lanczos
+
+        out_crop, _ = upsampler.enhance(crop, outscale=scale)
+        if out_crop is None:
+            return lanczos
+        tw, th = (cx2 - cx1) * scale, (cy2 - cy1) * scale
+        if (out_crop.shape[1], out_crop.shape[0]) != (tw, th):
+            out_crop = cv2.resize(out_crop, (tw, th), interpolation=cv2.INTER_LANCZOS4)
+
+        region = lanczos[cy1 * scale:cy2 * scale, cx1 * scale:cx2 * scale]
+        mixed = cv2.addWeighted(out_crop, realesrgan_weight,
+                                region, 1.0 - realesrgan_weight, 0)
+
+        # Feather the crop edge so the enhanced head doesn't end on a hard line.
+        m = np.zeros((th, tw), np.float32)
+        pad = max(2, int(min(th, tw) * 0.06))
+        m[pad:th - pad, pad:tw - pad] = 1.0
+        m = cv2.GaussianBlur(m, (0, 0), pad / 2.0)[..., None]
+
+        out = lanczos.copy()
+        out[cy1 * scale:cy2 * scale, cx1 * scale:cx2 * scale] = (
+            mixed.astype(np.float32) * m + region.astype(np.float32) * (1.0 - m)
+        ).astype(np.uint8)
+        print(f"[super_res] RealESRGAN on head {crop.shape[1]}x{crop.shape[0]} "
+              f"+ Lanczos {scale}x -> {out.shape[1]}x{out.shape[0]}")
+        return out
+    except Exception as e:
+        print(f"[super_res] RealESRGAN enhance failed: {e}")
+        return lanczos
 
 
 def enhance_resolution(image: np.ndarray, scale: int = 4) -> np.ndarray:
