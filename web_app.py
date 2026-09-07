@@ -15,10 +15,7 @@ except Exception:
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 import io
 import re
-import time
-import uuid
 import base64
-import threading
 import traceback
 import mimetypes
 
@@ -46,7 +43,7 @@ from core.hair_transfer import transfer_hair
 from core.blender import laplacian_blend
 from core.quality_checker import compute_quality_score
 from core import supabase_store
-from utils.image_io import resize_keep_aspect, composite_onto_original
+from utils.image_io import resize_keep_aspect
 
 REACT_BUILD   = os.path.join("static", "react")
 LOCATIONS_DIR = "Location"            # Location/Male/<loc>/img  +  Location/Female/<loc>/img
@@ -239,7 +236,7 @@ def _resolve_or_create_location(gender: str, location_name: str, create: bool = 
 
 app = Flask(__name__, static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
-_debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+_debug_mode = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
 CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"] if _debug_mode else "*")
 
 # Nothing is written to disk — uploads are decoded in memory and the result is
@@ -609,117 +606,15 @@ def api_detect():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-class SwapError(Exception):
-    """A user-facing problem with the inputs (no face found, undecodable, …)."""
-
-
-class _JobStore:
-    """
-    Background jobs for /api/swap.
-
-    The full-quality pipeline runs for minutes on the free CPU tier — head
-    super-resolution alone is ~6 minutes — which no HTTP request survives. So a
-    swap is submitted, run on a worker thread, and polled for.
-
-    Jobs run ONE AT A TIME. The Space has 2 vCPUs and the models are already
-    saturating them; overlapping swaps would only make every one of them slower.
-    Results hold multi-MB base64 images, so finished jobs are dropped after a
-    TTL and the store is capped.
-    """
-    TTL_SECONDS = 20 * 60
-    MAX_JOBS = 40
-
-    def __init__(self):
-        self._jobs = {}
-        self._lock = threading.Lock()
-        self._run_lock = threading.Lock()   # serialises the actual work
-
-    def _prune(self):
-        now = time.time()
-        stale = [k for k, j in self._jobs.items()
-                 if now - j["updated"] > self.TTL_SECONDS]
-        for k in stale:
-            self._jobs.pop(k, None)
-        if len(self._jobs) > self.MAX_JOBS:
-            for k in sorted(self._jobs, key=lambda k: self._jobs[k]["updated"]
-                            )[:len(self._jobs) - self.MAX_JOBS]:
-                self._jobs.pop(k, None)
-
-    def submit(self, source, target, opts):
-        job_id = uuid.uuid4().hex
-        with self._lock:
-            self._prune()
-            self._jobs[job_id] = {"state": "queued", "progress": 0,
-                                  "message": "Queued…", "result": None,
-                                  "error": None, "updated": time.time()}
-        threading.Thread(target=self._run, args=(job_id, source, target, opts),
-                         daemon=True).start()
-        return job_id
-
-    def _set(self, job_id, **kw):
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if job is not None:
-                job.update(kw)
-                job["updated"] = time.time()
-
-    def _run(self, job_id, source, target, opts):
-        def progress(pct, msg):
-            self._set(job_id, state="running", progress=int(pct), message=msg)
-
-        with self._run_lock:
-            try:
-                progress(2, "Starting…")
-                result = _perform_swap(source, target, opts, progress)
-                self._set(job_id, state="done", progress=100,
-                          message="Done", result=result)
-            except SwapError as e:
-                self._set(job_id, state="error", message=str(e), error=str(e))
-            except Exception as e:
-                traceback.print_exc()
-                self._set(job_id, state="error", message=str(e), error=str(e))
-
-    def get(self, job_id):
-        with self._lock:
-            job = self._jobs.get(job_id)
-            return dict(job) if job else None
-
-
-_jobs = _JobStore()
-
-
-@app.route("/api/swap/status/<job_id>", methods=["GET"])
-def api_swap_status(job_id):
-    """
-    Poll a submitted swap. While running returns state/progress/message; once
-    done the full result is returned in the same shape the old synchronous
-    /api/swap used, so the client renders it identically.
-    """
-    job = _jobs.get(job_id)
-    if job is None:
-        return jsonify({"ok": False, "error": "Unknown or expired job."}), 404
-    if job["state"] == "done":
-        resp = jsonify({"ok": True, "state": "done", "progress": 100,
-                        **(job["result"] or {})})
-    elif job["state"] == "error":
-        resp = jsonify({"ok": False, "state": "error",
-                        "error": job["error"] or "Swap failed."})
-    else:
-        resp = jsonify({"ok": True, "state": job["state"],
-                        "progress": job["progress"], "message": job["message"]})
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
 @app.route("/api/swap", methods=["POST"])
 def api_swap():
     """
-    Submit a face swap. Returns 202 with a job_id — poll
-    /api/swap/status/<job_id> for progress and the result.
-
+    Full face-swap pipeline: InsightFace swap → GFPGAN face restoration →
+    RealESRGAN 4K upscale (for download).
     Accepts multipart/form-data:
       - source_file  (file)  OR  source_b64 (string)  - source face
-      - target_file  (file)  OR  gender + location    - target scene
+      - target_file  (file)                            - target face
+    Returns JSON with result_image (base64), quality metrics, delta_e.
     """
     try:
         # -- decode source ----------------------------------------------------
@@ -764,31 +659,8 @@ def api_swap():
         if source is None or target is None:
             return jsonify({"ok": False, "error": "Could not decode one or both images"}), 400
 
-        opts = {
-            "name":         (request.form.get("name") or "").strip(),
-            "head_swap":    request.form.get("head_swap", "0"),
-            "swap_hair":    request.form.get("swap_hair", "1"),
-            "keep_glasses": request.form.get("keep_glasses", "0"),
-        }
-        job_id = _jobs.submit(source, target, opts)
-        return jsonify({"ok": True, "job_id": job_id, "state": "queued"}), 202
+        user_name = (request.form.get("name") or "").strip()
 
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-def _perform_swap(source, target, opts, progress=None):
-    """
-    The swap pipeline. Runs on a worker thread with no request context, so it
-    takes plain options and returns a plain dict; input problems raise
-    SwapError. `progress(pct, message)` drives the client's progress bar.
-    """
-    def note(pct, msg):
-        if progress:
-            progress(pct, msg)
-
-    try:
         # -- resize -----------------------------------------------------------
         # Working resolution: 1536 on GPU (sharper composite + better landmarks;
         # the RTX-class card handles it easily) and 1024 on CPU to stay fast.
@@ -796,11 +668,6 @@ def _perform_swap(source, target, opts, progress=None):
         # larger canvas mainly helps the final blend + the RealESRGAN 4x upscale.
         from core.super_res import _device as _sr_device
         _work_res = 1536 if _sr_device() == "cuda" else 1024
-        # Keep the untouched full-resolution target: at the end only the region
-        # the pipeline actually changed is pasted back onto it, so background and
-        # body keep the original photo's detail instead of being downscaled here
-        # and interpolated back up by the 4x pass.
-        target_orig = target
         source = resize_keep_aspect(source, _work_res)
         target = resize_keep_aspect(target, _work_res)
 
@@ -818,23 +685,21 @@ def _perform_swap(source, target, opts, progress=None):
 
         # -- enhance inputs (upscale small + GFPGAN restore) so detail isn't
         #    lost through the pipeline; the output is enhanced again at the end.
-        note(8, "Preparing images…")
         source = _enhance_input(source)
         target = _enhance_input(target)
 
         # -- face detection ---------------------------------------------------
-        note(15, "Detecting faces…")
         faces_src = _safe_detect(source)
         faces_tgt = _safe_detect(target)
         if not faces_src:
-            raise SwapError(
+            return jsonify({"ok": False, "error":
                 "No face detected in source image. Tips: ensure good lighting, "
                 "face the camera directly, remove heavy occlusions (mask/sunglasses), "
-                "and use a photo where the face is at least 10% of the frame.")
+                "and use a photo where the face is at least 10% of the frame."}), 400
         if not faces_tgt:
-            raise SwapError(
+            return jsonify({"ok": False, "error":
                 "No face detected in target image. Tips: ensure good lighting, "
-                "face the camera directly, and use a clear frontal portrait.")
+                "face the camera directly, and use a clear frontal portrait."}), 400
 
         # -- warn on very small detected faces (quality will be poor) ---------
         warnings = []
@@ -869,56 +734,31 @@ def _perform_swap(source, target, opts, progress=None):
         #
         # 1. (optional) HEAD SWAP — transplant the source head shape+hair.
         base = target
-        if opts.get("head_swap", "0") in ("1", "true", "on"):
+        if request.form.get("head_swap", "0") in ("1", "true", "on"):
             try:
-                from core.head_swap import (head_pose_delta, HEAD_POSE_WARN,
-                                            HEAD_POSE_MAX)
-                _pose = head_pose_delta(source, target)
                 hs = full_head_swap(source, target)
                 if hs is not None:
                     base = hs
-                    if _pose and max(_pose) > HEAD_POSE_WARN:
-                        warnings.append(
-                            "Your head angle differs from the location photo "
-                            f"(about {max(_pose):.0f}°), so the head swap may not line up "
-                            "perfectly. A photo taken from the same angle works best.")
-                elif _pose and max(_pose) > HEAD_POSE_MAX:
-                    # full_head_swap refused: the heads face different ways and a
-                    # 2D transform cannot turn one to match the other.
-                    warnings.append(
-                        f"Head swap was skipped — your head angle is about "
-                        f"{max(_pose):.0f}° away from the location photo, which would have "
-                        "looked crooked. The face swap was used instead. Try a photo "
-                        "facing the same way as the person in the location.")
             except Exception as e:
                 print(f"[swap] head swap error: {e}")
 
         # 2. FACE SWAP — the main event. Source identity onto the main face only
         #    (background/poster faces are never swapped).
-        note(28, "Swapping face…")
         swapped = swap_face_insightface(source, base)
 
         # 3. GFPGAN face restoration — recovers detail lost in the 128px swap.
-        note(40, "Restoring facial detail…")
         swapped = restore_faces(swapped)
 
         # 3b. Laplacian pyramid blend over the FACE-swap boundary — smooths the
         #     seam left by InsightFace's paste_back. MUST run BEFORE the hair step:
-        #     it composites the swapped FACE over the base everywhere else, so if
+        #     it composites the swapped FACE over the target everywhere else, so if
         #     it ran after the hair it would overwrite the newly-transferred hair
-        #     (which lies outside the face mask) with the base's original hair.
-        #
-        #     Blend against `base`, NOT `target`. They are the same image unless
-        #     the head swap ran, and when it did, blending against `target` threw
-        #     the transplanted head and hair away everywhere outside the face
-        #     mask — measured as erasing about two thirds of the head swap, which
-        #     is why head_swap=1 and head_swap=0 came out looking identical.
-        note(50, "Blending the seam…")
+        #     (which lies outside the face mask) with the target's original hair.
         try:
             from core.segmentor import segment_hair_neck_skin
             _fmask = segment_hair_neck_skin(swapped).get("face_mask")
             if _fmask is not None and _fmask.max() > 0:
-                swapped = laplacian_blend(swapped, base, _fmask, levels=4)
+                swapped = laplacian_blend(swapped, target, _fmask, levels=4)
         except Exception as e:
             print(f"[swap] Laplacian blend skipped: {e}")
 
@@ -929,8 +769,7 @@ def _perform_swap(source, target, opts, progress=None):
         #    composites the FULL long hair back into the scene (the parse crop +
         #    region clamp were widened so long hair is no longer cut off). ON by
         #    default (set swap_hair=0 for a fast face-only swap).
-        if opts.get("swap_hair", "1") in ("1", "true", "on"):
-            note(58, "Transferring hair…")
+        if request.form.get("swap_hair", "1") in ("1", "true", "on"):
             hf_portrait = None
             try:
                 hf_portrait = transfer_hair(face_bgr=swapped, shape_bgr=source,
@@ -944,24 +783,12 @@ def _perform_swap(source, target, opts, progress=None):
                                                    cv2.BORDER_CONSTANT, value=(127, 127, 127))
                     swapped = swap_hair(swapped, hf_padded, swapped, include_face=False)
                 else:
-                    # No crude fallback. Warping the source's hair straight into
-                    # the scene composites a smeared, semi-transparent blob over
-                    # the head — visibly worse than simply keeping the target's
-                    # hair, which is what the clean face swap already gives.
-                    # Real hair transfer needs HairFastGAN: set HF_TOKEN on the
-                    # Space (the anonymous ZeroGPU quota is what fails here), or
-                    # HAIRFAST_SPACE for your own GPU Space.
-                    print("[swap] hair transfer unavailable (HairFastGAN) — "
-                          "keeping the target's hair")
+                    swapped = swap_hair(swapped, source, target, include_face=False)
             except Exception as e:
                 print(f"[swap] hair compose error: {e}")
 
-        # 6. Glasses — OPT-IN (keep_glasses=1). It warps the source's spectacles
-        #    onto the swapped face via a 2-point eye transform, and on a real
-        #    glasses-wearing source that lands as a semi-transparent, misaligned
-        #    lens shape floating over the face. Without it the result is clean;
-        #    the swap simply doesn't carry the glasses over.
-        if opts.get("keep_glasses", "0") in ("1", "true", "on"):
+        # 6. Glasses (no-op if the source isn't wearing any).
+        if request.form.get("keep_glasses", "1") in ("1", "true", "on"):
             try:
                 swapped = transfer_glasses(swapped, source)
             except Exception as e:
@@ -971,7 +798,6 @@ def _perform_swap(source, target, opts, progress=None):
         #    visible skin (face + neck + arms + hands) to the SOURCE complexion;
         #    clothes/background are excluded. Done AFTER the Laplacian blend so the
         #    blend can't pull the face colour back toward the target's tone.
-        note(72, "Matching skin tone…")
         try:
             swapped = match_skin_to_source(
                 swapped, source, faces_src[0], faces_tgt[0], strength=0.92
@@ -979,11 +805,16 @@ def _perform_swap(source, target, opts, progress=None):
         except Exception as e:
             print(f"[swap] skin tone match skipped: {e}")
 
+        # 8. HARMONISE — make the swapped head look PHOTOGRAPHED WITH the scene
+        #    (not pasted on it): add the photo's grain over the GAN-smooth face/hair
+        #    and gently match its colour cast. This is the last visual step, so the
+        #    grain isn't smoothed away by anything after it.
+        try:
+            swapped = harmonize_to_scene(swapped, target, faces_tgt[0], grain=0.9)
+        except Exception as e:
+            print(f"[swap] harmonize skipped: {e}")
+
         # -- quality metrics --------------------------------------------------
-        # Scored BEFORE step 8 below: that step adds deliberate grain/noise for
-        # visual realism, which would otherwise inflate the noise/discontinuity
-        # penalties in compute_quality_score and understate the swap's real quality.
-        note(78, "Scoring quality…")
         quality = compute_quality_score(swapped, target, None, None)
 
         # Real alignment: how closely the swapped face's 5 landmarks sit on the
@@ -1020,47 +851,16 @@ def _perform_swap(source, target, opts, progress=None):
         except Exception as e:
             print(f"[swap] alignment metric skipped: {e}")
 
-        # 8. HARMONISE — make the swapped head look PHOTOGRAPHED WITH the scene
-        #    (not pasted on it): add the photo's grain over the GAN-smooth face/hair
-        #    and gently match its colour cast. Runs AFTER quality scoring (so the
-        #    added grain doesn't skew the naturalness/blend metrics) but still last
-        #    before the output is encoded, so nothing smooths the grain away.
-        try:
-            swapped = harmonize_to_scene(swapped, target, faces_tgt[0], grain=0.9)
-        except Exception as e:
-            print(f"[swap] harmonize skipped: {e}")
-
-        # 9. Paste the changed region back onto the FULL-RESOLUTION target so the
-        #    background and body keep the original photo's detail rather than the
-        #    downscaled-then-interpolated version. No-op if nothing was resized.
-        note(84, "Restoring full-resolution background…")
-        _work_h, _work_w = swapped.shape[:2]
-        try:
-            swapped = composite_onto_original(swapped, target, target_orig)
-        except Exception as e:
-            print(f"[swap] original-resolution composite skipped: {e}")
-
-        # -- 4K upscale for download (RealESRGAN on the head, Lanczos elsewhere)
-        # The head is the only region that came through the swap's 128px
-        # bottleneck; the rest is already native resolution from step 9, so
-        # there's nothing there for a super-resolution model to reconstruct.
-        _sr_bbox = None
-        try:
-            _fs = swapped.shape[1] / float(_work_w)   # working -> composited scale
-            x1, y1, x2, y2 = faces_tgt[0]
-            _sr_bbox = (x1 * _fs, y1 * _fs, x2 * _fs, y2 * _fs)
-        except Exception:
-            pass
-        note(88, "Enhancing to 4K (this is the slow part)…")
-        hi_res = upscale_image(swapped, scale=4, focus_bbox=_sr_bbox)
+        # -- 4K upscale for download (RealESRGAN x4, Lanczos fallback) --------
+        hi_res = upscale_image(swapped, scale=4)
 
         # The 4K result is returned inline as a base64 data-URI so the user can
         # download it client-side (works on the HF Space too). We do NOT store it
         # server-side — nothing is written to disk (privacy + no disk growth).
         download_uri = _encode_image(hi_res, fmt="JPEG", quality=95)
 
-        note(100, "Done")
-        return {
+        return jsonify({
+            "ok": True,
             "result_image": _encode_image(swapped, fmt="JPEG", quality=92),
             "download_image": download_uri,
             "quality": quality,
@@ -1068,14 +868,12 @@ def _perform_swap(source, target, opts, progress=None):
             "src_tone": src_tone,
             "tgt_tone": tgt_tone,
             "warnings": warnings,
-            "name": opts.get("name", ""),
-        }
+            "name": user_name,
+        })
 
-    except SwapError:
-        raise                      # user-facing input problem — reported as-is
-    except Exception:
-        traceback.print_exc()      # log where it actually broke, then surface it
-        raise
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 def _prewarm_models():
@@ -1095,15 +893,9 @@ def _prewarm_models():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    # Defaults to OFF: nothing sets FLASK_DEBUG on the deployed Space, and a
-    # true default there serves the Werkzeug debugger on the public internet.
-    # Opt in locally with FLASK_DEBUG=true.
-    debug = _debug_mode
+    port  = int(os.environ.get("PORT", 5000))
+    debug = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
     print(f"Starting Face Swap Web App on port {port}...")
     if not debug:
-        # In a daemon thread so the port binds immediately — startup.sh
-        # backgrounds the model downloads for the same reason (HF Spaces kills
-        # a container that doesn't answer on its port within ~60s).
-        threading.Thread(target=_prewarm_models, daemon=True).start()
+        _prewarm_models()
     app.run(debug=debug, use_reloader=False, host="0.0.0.0", port=port)

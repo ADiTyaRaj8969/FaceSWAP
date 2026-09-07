@@ -1,16 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { auth, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } from '../firebase';
-
-// Hugging Face serves the Space inside a cross-origin iframe. Google refuses to
-// render its sign-in there (it answers 403 "you do not have access to this
-// document"), so signInWithRedirect — which navigates THIS frame — is a dead end.
-// Popups can also be blocked by the frame's sandbox. When framed we therefore
-// never redirect; we offer to reopen the app in a top-level tab instead.
-const IN_IFRAME = (() => {
-  try { return window.self !== window.top; } catch { return true; }
-})();
+import { auth, googleProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged } from '../firebase';
 
 // ═══ AUTHORISED OWNER EMAILS ═══════════════════════════════════════════════════
 // Only these Google accounts can open the Control Panel. Anyone else who signs
@@ -34,26 +25,11 @@ async function getIdToken() {
 
 // ── Google sign-in screen ─────────────────────────────────────────────────────
 function GoogleLogin({ denied }) {
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState('');
-  const [needsTab, setNeedsTab] = useState(false);
-
-  // Complete a redirect sign-in (top-level tab only) and surface its error.
-  // Without this the redirect path fails silently: you come back from Google
-  // and just see the login screen again with no explanation.
-  useEffect(() => {
-    getRedirectResult(auth).catch((e) => {
-      const code = e?.code || '';
-      if (code) setError(`Sign-in failed: ${code}`);
-    });
-  }, []);
-
-  const openInNewTab = () => {
-    window.open(window.location.href, '_blank', 'noopener,noreferrer');
-  };
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
 
   const signIn = async () => {
-    setLoading(true); setError(''); setNeedsTab(false);
+    setLoading(true); setError('');
     try {
       const res   = await signInWithPopup(auth, googleProvider);
       const email = (res.user.email || '').toLowerCase();
@@ -70,15 +46,9 @@ function GoogleLogin({ denied }) {
         setError('This site\'s domain isn\'t authorised in Firebase. Add it under '
                + 'Firebase Console → Authentication → Settings → Authorized domains.');
       } else if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') {
-        if (IN_IFRAME) {
-          // Redirecting here would navigate the Hugging Face iframe to Google,
-          // which answers 403 (it won't be embedded). Reopen top-level instead.
-          setNeedsTab(true);
-          setError('Google sign-in can\'t run inside the Hugging Face preview frame.');
-        } else {
-          try { await signInWithRedirect(auth, googleProvider); return; }
-          catch { setError('Sign-in failed (popup blocked). Allow popups and retry.'); }
-        }
+        // Popup blocked (or COOP) - fall back to full-page redirect sign-in.
+        try { await signInWithRedirect(auth, googleProvider); return; }
+        catch { setError('Sign-in failed (popup blocked). Allow popups and retry.'); }
       } else {
         setError(`Sign-in failed: ${code || e?.message || 'unknown error'}`);
       }
@@ -122,20 +92,6 @@ function GoogleLogin({ denied }) {
             </motion.p>
           )}
         </AnimatePresence>
-
-        {/* Google won't render its sign-in inside the Hugging Face iframe, so
-            offer a top-level tab — shown up front when framed, and after a
-            blocked popup anywhere else. */}
-        {(needsTab || IN_IFRAME) && (
-          <button onClick={openInNewTab}
-            className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-xs font-semibold text-teal border border-teal/40 bg-teal/5 hover:bg-teal/10 active:scale-95 transition-all">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-              <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-            </svg>
-            Open in a new tab to sign in
-          </button>
-        )}
 
         <p className="mt-5 text-[11px] text-slate text-center leading-relaxed">
           Access is restricted to a fixed list of owner accounts.

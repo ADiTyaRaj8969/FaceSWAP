@@ -122,36 +122,18 @@ def _soft_hair_matte(image, bbox, up=1.0, down=2.6, side=1.4) -> np.ndarray:
         return full
     x1, y1, x2, y2 = [int(v) for v in bbox]
     bw, bh = x2 - x1, y2 - y1
-
-    def _matte(up_, down_, side_):
-        ex1 = max(0, x1 - int(bw * side_)); ey1 = max(0, y1 - int(bh * up_))
-        ex2 = min(w, x2 + int(bw * side_)); ey2 = min(h, y2 + int(bh * down_))
-        crop = image[ey1:ey2, ex1:ex2]
-        if crop.size == 0:
-            return None
-        inp = cv2.resize(crop, (512, 512))
-        rgb = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        rgb = (rgb - 0.5) / 0.5
-        t = torch.from_numpy(rgb.transpose(2, 0, 1)).unsqueeze(0).float().to(_device())
-        with torch.no_grad():
-            prob = torch.softmax(parser(t)[0], dim=1)[0, 17].cpu().numpy().astype(np.float32)
-        out = np.zeros((h, w), np.float32)
-        out[ey1:ey2, ex1:ex2] = cv2.resize(prob, (ex2 - ex1, ey2 - ey1))
-        return out
-
-    # The wide crop exists so long hair isn't cut off before parsing, but it
-    # also shrinks the head inside the 512x512 parse input, and BiSeNet's hair
-    # confidence falls with it. Measured on a 66x77 face: the wide crop peaks at
-    # 0.341, leaving NOTHING above the 0.4 that swap_hair thresholds at, so the
-    # hair mask came out empty and the transfer silently did nothing. So keep
-    # the wide crop when it is confident, and tighten only when it is not.
-    for factor in (1.0, 0.6, 0.38, 0.25):
-        m = _matte(up * max(factor, 0.6), down * factor, side * factor)
-        if m is None:
-            continue
-        full = m
-        if m.max() >= 0.5:
-            break
+    ex1 = max(0, x1 - int(bw * side)); ey1 = max(0, y1 - int(bh * up))
+    ex2 = min(w, x2 + int(bw * side)); ey2 = min(h, y2 + int(bh * down))
+    crop = image[ey1:ey2, ex1:ex2]
+    if crop.size == 0:
+        return full
+    inp = cv2.resize(crop, (512, 512))
+    rgb = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    rgb = (rgb - 0.5) / 0.5
+    t = torch.from_numpy(rgb.transpose(2, 0, 1)).unsqueeze(0).float().to(_device())
+    with torch.no_grad():
+        prob = torch.softmax(parser(t)[0], dim=1)[0, 17].cpu().numpy().astype(np.float32)
+    full[ey1:ey2, ex1:ex2] = cv2.resize(prob, (ex2 - ex1, ey2 - ey1))
     return full
 
 
@@ -547,38 +529,13 @@ def harmonize_to_scene(result, target, face_bbox, grain=1.0):
     h, w = result.shape[:2]
     res = result.astype(np.float32)
 
-    # Grain must land on the HEAD, not on a rectangle around it. A box sprays
-    # noise over whatever shares its bounds — background, shelves, clothing —
-    # which dirties the scene and leaves the box's own feathered edge visible.
-    # So parse the actual head/hair/neck shape and clamp it to a generous head
-    # box, which keeps stray parse specks elsewhere from picking up grain.
     x1, y1, x2, y2 = [int(v) for v in face_bbox]
     bw, bh = x2 - x1, y2 - y1
-    box = np.zeros((h, w), np.float32)
+    mask = np.zeros((h, w), np.float32)
     rx1 = max(0, x1 - int(bw * 1.25)); ry1 = max(0, y1 - int(bh * 1.6))
-    rx2 = min(w, x2 + int(bw * 1.25)); ry2 = min(h, y2 + int(bh * 3.0))
-    box[ry1:ry2, rx1:rx2] = 1.0
-
-    mask = None
-    try:
-        # Same generous crop as the hair matte so long hair is parsed, not cut.
-        # Class 18 (hat) is included HERE only: the parser labels part of the
-        # hair as hat, and while that misfire matters when transferring hair
-        # (_HEAD_CLASSES rightly drops it), leaving it out here punches an
-        # ungrained hole in the top of the head.
-        parsed = _parse_region_mask(result, face_bbox,
-                                    _HEAD_CLASSES | _NECK_ONLY_CLASSES | {18},
-                                    up=1.0, down=2.6, side=1.4)
-        if parsed.max() > 0:
-            mask = parsed * box
-    except Exception as e:
-        print(f"[head_swap] harmonize parse failed, falling back to head box: {e}")
-    if mask is None or mask.max() <= 0:
-        mask = box
-
-    # Small feather: enough to fade at the hairline, not so wide it bleeds the
-    # grain back out into the scene the way the old box-sized blur did.
-    mask = cv2.GaussianBlur(mask, (0, 0), max(1.5, min(h, w) * 0.006))
+    rx2 = min(w, x2 + int(bw * 1.25)); ry2 = min(h, y2 + int(bh * 1.2))
+    mask[ry1:ry2, rx1:rx2] = 1.0
+    mask = cv2.GaussianBlur(mask, (0, 0), max(2.0, min(h, w) * 0.02))
     m3 = mask[..., None]
 
     # (1) match the scene's grain (estimated from the target's high-freq luminance)
@@ -588,34 +545,19 @@ def harmonize_to_scene(result, target, face_bbox, grain=1.0):
                                   2.5, 8.0)) * grain
         noise = np.random.randn(h, w).astype(np.float32) * grain_std
         res = res + noise[..., None] * m3
-    except Exception as e:
-        print(f"[head_swap] harmonize grain skipped: {e}")
+    except Exception:
+        pass
 
-    # (2) gentle colour-cast harmonisation: shift the head's mean toward the
-    # scene's — sampled OUTSIDE the head mask (the surrounding scene), never from
-    # inside it. `target` still shows the ORIGINAL target face (never overwritten
-    # by the swap), so sampling the whole frame would pull the head's colour back
-    # toward the target's own skin tone, undoing match_skin_to_source which runs
-    # immediately before this step. LAB's L channel is darken-only, mirroring
-    # _match_lighting's rule, so this can't wash hair/skin out to grey/silver
-    # against a bright background.
+    # (2) gentle colour-cast harmonisation: shift the head's mean toward the scene's
     try:
         sel = mask > 0.4
-        bg_sel = mask < 0.05
-        if int(sel.sum()) > 200 and int(bg_sel.sum()) > 200:
-            head_lab = cv2.cvtColor(np.clip(res, 0, 255).astype(np.uint8),
-                                    cv2.COLOR_BGR2LAB).astype(np.float32)
-            scene_lab = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype(np.float32)
-            head_mean = head_lab[sel].reshape(-1, 3).mean(0)
-            scene_mean = scene_lab[bg_sel].reshape(-1, 3).mean(0)
-            cast = np.zeros(3, np.float32)
-            cast[0] = min(0.0, scene_mean[0] - head_mean[0]) * 0.35     # L: darken-only
-            cast[1:] = (scene_mean[1:] - head_mean[1:]) * 0.12          # a/b: gentle nudge
-            out_lab = head_lab + cast[None, None, :] * m3
-            res = cv2.cvtColor(np.clip(out_lab, 0, 255).astype(np.uint8),
-                               cv2.COLOR_LAB2BGR).astype(np.float32)
-    except Exception as e:
-        print(f"[head_swap] harmonize colour-cast skipped: {e}")
+        if int(sel.sum()) > 200:
+            head_mean = res[sel].reshape(-1, 3).mean(0)
+            scene_mean = target.astype(np.float32).reshape(-1, 3).mean(0)
+            cast = (scene_mean - head_mean) * 0.12      # subtle
+            res = res + cast[None, None, :] * m3
+    except Exception:
+        pass
 
     return np.clip(res, 0, 255).astype(np.uint8)
 
@@ -642,41 +584,8 @@ def _match_lighting(src_region, dst, mask):
     return cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
 
-#: Out-of-plane mismatch (degrees) past which a transplanted head reads as
-#: crooked. Warn above the first, refuse above the second.
-HEAD_POSE_WARN = 15.0
-HEAD_POSE_MAX = 25.0
-
-
-def head_pose_delta(source: np.ndarray, target: np.ndarray):
-    """
-    (|d_pitch|, |d_yaw|) between the largest face in each image, or None if the
-    detector doesn't report pose.
-
-    Roll is deliberately excluded: it is in-plane, and the similarity transform
-    full_head_swap fits already corrects it. Pitch and yaw are out-of-plane and
-    it cannot — a head nodded down cannot be turned to face up by translating,
-    rotating and scaling a flat image.
-    """
-    app = _get_insightface()
-    if app is None:
-        return None
-    try:
-        area = lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
-        sfs, tfs = app.get(source), app.get(target)
-        if not sfs or not tfs:
-            return None
-        sp = getattr(max(sfs, key=area), "pose", None)
-        tp = getattr(max(tfs, key=area), "pose", None)
-        if sp is None or tp is None:
-            return None
-        return abs(float(sp[0]) - float(tp[0])), abs(float(sp[1]) - float(tp[1]))
-    except Exception:
-        return None
-
-
 def full_head_swap(source: np.ndarray, target: np.ndarray,
-                   feather: float = 0.012):
+                   feather: float = 0.025):
     """
     Transplant the SOURCE's whole head — face SHAPE + skin + hair (+ glasses) —
     onto the target's body/scene. Unlike InsightFace (which keeps the target's
@@ -685,14 +594,6 @@ def full_head_swap(source: np.ndarray, target: np.ndarray,
     proportions; only the head region is touched, so the BACKGROUND is untouched.
     Best when source and target face roughly the same way. Returns the composited
     image, or None if it can't (caller falls back to the face swap).
-
-    Sharpness is bounded by the SOURCE photo. The head is warped by whatever
-    scale maps the source's eyes/nose/mouth onto the target's, so a source whose
-    head is smaller than the target's gets upscaled and comes out visibly softer
-    than the surrounding photograph — measured at roughly 1.43x upscale for a
-    66x77 source face against a 102x116 target one. A close, sharp source photo
-    is what makes this look right; no amount of blending recovers detail that
-    was never captured.
     """
     app = _get_insightface()
     if app is None:
@@ -705,21 +606,6 @@ def full_head_swap(source: np.ndarray, target: np.ndarray,
         area = lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
         sf = max(src_faces, key=area)
         tf = max(tgt_faces, key=area)
-
-        # Refuse when the two heads face different ways. The transform below is
-        # a 2D similarity, so it can slide, spin and scale the source head but
-        # cannot turn it: transplanting a head nodded down onto a body with its
-        # chin up lands visibly crooked no matter how well the seam is blended.
-        # Better to fall back to the clean face swap than to paste that.
-        sp, tp = getattr(sf, "pose", None), getattr(tf, "pose", None)
-        if sp is not None and tp is not None:
-            d_pitch = abs(float(sp[0]) - float(tp[0]))
-            d_yaw = abs(float(sp[1]) - float(tp[1]))
-            if max(d_pitch, d_yaw) > HEAD_POSE_MAX:
-                print(f"[head_swap] head angles too different "
-                      f"(pitch {d_pitch:.0f}deg, yaw {d_yaw:.0f}deg > {HEAD_POSE_MAX:.0f}) "
-                      f"— skipping head swap")
-                return None
 
         # Similarity (no shear) keeps the source face SHAPE; aligns it to the
         # target's eyes/nose/mouth position, scale and rotation.
