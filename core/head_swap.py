@@ -643,7 +643,7 @@ def _match_lighting(src_region, dst, mask):
 
 
 def full_head_swap(source: np.ndarray, target: np.ndarray,
-                   feather: float = 0.025):
+                   feather: float = 0.012):
     """
     Transplant the SOURCE's whole head — face SHAPE + skin + hair (+ glasses) —
     onto the target's body/scene. Unlike InsightFace (which keeps the target's
@@ -652,6 +652,14 @@ def full_head_swap(source: np.ndarray, target: np.ndarray,
     proportions; only the head region is touched, so the BACKGROUND is untouched.
     Best when source and target face roughly the same way. Returns the composited
     image, or None if it can't (caller falls back to the face swap).
+
+    Sharpness is bounded by the SOURCE photo. The head is warped by whatever
+    scale maps the source's eyes/nose/mouth onto the target's, so a source whose
+    head is smaller than the target's gets upscaled and comes out visibly softer
+    than the surrounding photograph — measured at roughly 1.43x upscale for a
+    66x77 source face against a 102x116 target one. A close, sharp source photo
+    is what makes this look right; no amount of blending recovers detail that
+    was never captured.
     """
     app = _get_insightface()
     if app is None:

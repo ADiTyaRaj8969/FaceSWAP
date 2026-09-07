@@ -888,15 +888,21 @@ def _perform_swap(source, target, opts, progress=None):
 
         # 3b. Laplacian pyramid blend over the FACE-swap boundary — smooths the
         #     seam left by InsightFace's paste_back. MUST run BEFORE the hair step:
-        #     it composites the swapped FACE over the target everywhere else, so if
+        #     it composites the swapped FACE over the base everywhere else, so if
         #     it ran after the hair it would overwrite the newly-transferred hair
-        #     (which lies outside the face mask) with the target's original hair.
+        #     (which lies outside the face mask) with the base's original hair.
+        #
+        #     Blend against `base`, NOT `target`. They are the same image unless
+        #     the head swap ran, and when it did, blending against `target` threw
+        #     the transplanted head and hair away everywhere outside the face
+        #     mask — measured as erasing about two thirds of the head swap, which
+        #     is why head_swap=1 and head_swap=0 came out looking identical.
         note(50, "Blending the seam…")
         try:
             from core.segmentor import segment_hair_neck_skin
             _fmask = segment_hair_neck_skin(swapped).get("face_mask")
             if _fmask is not None and _fmask.max() > 0:
-                swapped = laplacian_blend(swapped, target, _fmask, levels=4)
+                swapped = laplacian_blend(swapped, base, _fmask, levels=4)
         except Exception as e:
             print(f"[swap] Laplacian blend skipped: {e}")
 
