@@ -13,3 +13,15 @@
 *.md    text eol=lf
 *.txt   text eol=lf
 Dockerfile text eol=lf
+
+# Never run line-ending conversion over binaries — it corrupts them. Git was
+# reporting "LF will be replaced by CRLF" for docs/WORKFLOW.pdf without this.
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.bmp   binary
+*.ico   binary
+*.onnx  binary
+*.pth   binary
