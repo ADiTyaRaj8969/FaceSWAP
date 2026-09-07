@@ -768,7 +768,7 @@ def api_swap():
             "name":         (request.form.get("name") or "").strip(),
             "head_swap":    request.form.get("head_swap", "0"),
             "swap_hair":    request.form.get("swap_hair", "1"),
-            "keep_glasses": request.form.get("keep_glasses", "1"),
+            "keep_glasses": request.form.get("keep_glasses", "0"),
         }
         job_id = _jobs.submit(source, target, opts)
         return jsonify({"ok": True, "job_id": job_id, "state": "queued"}), 202
@@ -934,8 +934,12 @@ def _perform_swap(source, target, opts, progress=None):
             except Exception as e:
                 print(f"[swap] hair compose error: {e}")
 
-        # 6. Glasses (no-op if the source isn't wearing any).
-        if opts.get("keep_glasses", "1") in ("1", "true", "on"):
+        # 6. Glasses — OPT-IN (keep_glasses=1). It warps the source's spectacles
+        #    onto the swapped face via a 2-point eye transform, and on a real
+        #    glasses-wearing source that lands as a semi-transparent, misaligned
+        #    lens shape floating over the face. Without it the result is clean;
+        #    the swap simply doesn't carry the glasses over.
+        if opts.get("keep_glasses", "0") in ("1", "true", "on"):
             try:
                 swapped = transfer_glasses(swapped, source)
             except Exception as e:
