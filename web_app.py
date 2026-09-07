@@ -922,7 +922,15 @@ def _perform_swap(source, target, opts, progress=None):
                                                    cv2.BORDER_CONSTANT, value=(127, 127, 127))
                     swapped = swap_hair(swapped, hf_padded, swapped, include_face=False)
                 else:
-                    swapped = swap_hair(swapped, source, target, include_face=False)
+                    # No crude fallback. Warping the source's hair straight into
+                    # the scene composites a smeared, semi-transparent blob over
+                    # the head — visibly worse than simply keeping the target's
+                    # hair, which is what the clean face swap already gives.
+                    # Real hair transfer needs HairFastGAN: set HF_TOKEN on the
+                    # Space (the anonymous ZeroGPU quota is what fails here), or
+                    # HAIRFAST_SPACE for your own GPU Space.
+                    print("[swap] hair transfer unavailable (HairFastGAN) — "
+                          "keeping the target's hair")
             except Exception as e:
                 print(f"[swap] hair compose error: {e}")
 

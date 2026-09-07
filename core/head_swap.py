@@ -122,18 +122,36 @@ def _soft_hair_matte(image, bbox, up=1.0, down=2.6, side=1.4) -> np.ndarray:
         return full
     x1, y1, x2, y2 = [int(v) for v in bbox]
     bw, bh = x2 - x1, y2 - y1
-    ex1 = max(0, x1 - int(bw * side)); ey1 = max(0, y1 - int(bh * up))
-    ex2 = min(w, x2 + int(bw * side)); ey2 = min(h, y2 + int(bh * down))
-    crop = image[ey1:ey2, ex1:ex2]
-    if crop.size == 0:
-        return full
-    inp = cv2.resize(crop, (512, 512))
-    rgb = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    rgb = (rgb - 0.5) / 0.5
-    t = torch.from_numpy(rgb.transpose(2, 0, 1)).unsqueeze(0).float().to(_device())
-    with torch.no_grad():
-        prob = torch.softmax(parser(t)[0], dim=1)[0, 17].cpu().numpy().astype(np.float32)
-    full[ey1:ey2, ex1:ex2] = cv2.resize(prob, (ex2 - ex1, ey2 - ey1))
+
+    def _matte(up_, down_, side_):
+        ex1 = max(0, x1 - int(bw * side_)); ey1 = max(0, y1 - int(bh * up_))
+        ex2 = min(w, x2 + int(bw * side_)); ey2 = min(h, y2 + int(bh * down_))
+        crop = image[ey1:ey2, ex1:ex2]
+        if crop.size == 0:
+            return None
+        inp = cv2.resize(crop, (512, 512))
+        rgb = cv2.cvtColor(inp, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        rgb = (rgb - 0.5) / 0.5
+        t = torch.from_numpy(rgb.transpose(2, 0, 1)).unsqueeze(0).float().to(_device())
+        with torch.no_grad():
+            prob = torch.softmax(parser(t)[0], dim=1)[0, 17].cpu().numpy().astype(np.float32)
+        out = np.zeros((h, w), np.float32)
+        out[ey1:ey2, ex1:ex2] = cv2.resize(prob, (ex2 - ex1, ey2 - ey1))
+        return out
+
+    # The wide crop exists so long hair isn't cut off before parsing, but it
+    # also shrinks the head inside the 512x512 parse input, and BiSeNet's hair
+    # confidence falls with it. Measured on a 66x77 face: the wide crop peaks at
+    # 0.341, leaving NOTHING above the 0.4 that swap_hair thresholds at, so the
+    # hair mask came out empty and the transfer silently did nothing. So keep
+    # the wide crop when it is confident, and tighten only when it is not.
+    for factor in (1.0, 0.6, 0.38, 0.25):
+        m = _matte(up * max(factor, 0.6), down * factor, side * factor)
+        if m is None:
+            continue
+        full = m
+        if m.max() >= 0.5:
+            break
     return full
 
 
