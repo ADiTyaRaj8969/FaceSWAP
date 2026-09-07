@@ -871,9 +871,25 @@ def _perform_swap(source, target, opts, progress=None):
         base = target
         if opts.get("head_swap", "0") in ("1", "true", "on"):
             try:
+                from core.head_swap import (head_pose_delta, HEAD_POSE_WARN,
+                                            HEAD_POSE_MAX)
+                _pose = head_pose_delta(source, target)
                 hs = full_head_swap(source, target)
                 if hs is not None:
                     base = hs
+                    if _pose and max(_pose) > HEAD_POSE_WARN:
+                        warnings.append(
+                            "Your head angle differs from the location photo "
+                            f"(about {max(_pose):.0f}°), so the head swap may not line up "
+                            "perfectly. A photo taken from the same angle works best.")
+                elif _pose and max(_pose) > HEAD_POSE_MAX:
+                    # full_head_swap refused: the heads face different ways and a
+                    # 2D transform cannot turn one to match the other.
+                    warnings.append(
+                        f"Head swap was skipped — your head angle is about "
+                        f"{max(_pose):.0f}° away from the location photo, which would have "
+                        "looked crooked. The face swap was used instead. Try a photo "
+                        "facing the same way as the person in the location.")
             except Exception as e:
                 print(f"[swap] head swap error: {e}")
 

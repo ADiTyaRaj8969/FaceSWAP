@@ -614,6 +614,25 @@ export default function AppPage() {
                   </TiltedCard>
                 </div>
 
+                {/* Server-side notes about this result — why the head swap was
+                    skipped, a face too small to swap well, and so on. Without
+                    these the pipeline silently falls back and the result just
+                    looks like nothing happened. */}
+                {Array.isArray(result.warnings) && result.warnings.length > 0 && (
+                  <div className="max-w-md w-full mx-auto mt-3 flex flex-col gap-2">
+                    {result.warnings.map((w, i) => (
+                      <p key={i}
+                        className="flex items-start gap-2 text-[11px] leading-relaxed font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        <svg className="w-3.5 h-3.5 shrink-0 mt-px" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        <span>{w}</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
+
                 {/* download row */}
                 <div className="flex flex-col sm:flex-row gap-3 justify-center mt-2">
                   <a href={result.download_image || result.result_image}

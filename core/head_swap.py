@@ -642,6 +642,39 @@ def _match_lighting(src_region, dst, mask):
     return cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
 
 
+#: Out-of-plane mismatch (degrees) past which a transplanted head reads as
+#: crooked. Warn above the first, refuse above the second.
+HEAD_POSE_WARN = 15.0
+HEAD_POSE_MAX = 25.0
+
+
+def head_pose_delta(source: np.ndarray, target: np.ndarray):
+    """
+    (|d_pitch|, |d_yaw|) between the largest face in each image, or None if the
+    detector doesn't report pose.
+
+    Roll is deliberately excluded: it is in-plane, and the similarity transform
+    full_head_swap fits already corrects it. Pitch and yaw are out-of-plane and
+    it cannot — a head nodded down cannot be turned to face up by translating,
+    rotating and scaling a flat image.
+    """
+    app = _get_insightface()
+    if app is None:
+        return None
+    try:
+        area = lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
+        sfs, tfs = app.get(source), app.get(target)
+        if not sfs or not tfs:
+            return None
+        sp = getattr(max(sfs, key=area), "pose", None)
+        tp = getattr(max(tfs, key=area), "pose", None)
+        if sp is None or tp is None:
+            return None
+        return abs(float(sp[0]) - float(tp[0])), abs(float(sp[1]) - float(tp[1]))
+    except Exception:
+        return None
+
+
 def full_head_swap(source: np.ndarray, target: np.ndarray,
                    feather: float = 0.012):
     """
@@ -672,6 +705,21 @@ def full_head_swap(source: np.ndarray, target: np.ndarray,
         area = lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])
         sf = max(src_faces, key=area)
         tf = max(tgt_faces, key=area)
+
+        # Refuse when the two heads face different ways. The transform below is
+        # a 2D similarity, so it can slide, spin and scale the source head but
+        # cannot turn it: transplanting a head nodded down onto a body with its
+        # chin up lands visibly crooked no matter how well the seam is blended.
+        # Better to fall back to the clean face swap than to paste that.
+        sp, tp = getattr(sf, "pose", None), getattr(tf, "pose", None)
+        if sp is not None and tp is not None:
+            d_pitch = abs(float(sp[0]) - float(tp[0]))
+            d_yaw = abs(float(sp[1]) - float(tp[1]))
+            if max(d_pitch, d_yaw) > HEAD_POSE_MAX:
+                print(f"[head_swap] head angles too different "
+                      f"(pitch {d_pitch:.0f}deg, yaw {d_yaw:.0f}deg > {HEAD_POSE_MAX:.0f}) "
+                      f"— skipping head swap")
+                return None
 
         # Similarity (no shear) keeps the source face SHAPE; aligns it to the
         # target's eyes/nose/mouth position, scale and rotation.
